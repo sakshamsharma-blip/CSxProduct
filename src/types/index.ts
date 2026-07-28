@@ -44,6 +44,7 @@ export interface Ticket {
   id: string;
   custom_id: string; // REQ-1001
   lab_name: string;
+  client_id: string;
   subject: string;
   description: string;
   sub_type: TicketSubType;
@@ -73,6 +74,7 @@ export interface UpdateLog {
 // ===== UI Helpers =====
 export type QueueTab =
   | 'all'
+  | 'my_tickets'
   | 'pending_cs'
   | 'pending_product'
   | 'in_scope'

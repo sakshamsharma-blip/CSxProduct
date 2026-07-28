@@ -12,6 +12,7 @@ interface NewTicketModalProps {
 export function NewTicketModal({ isOpen, onClose, onCreated }: NewTicketModalProps) {
   const { appUser } = useAuth();
   const [labName, setLabName] = useState('');
+  const [clientId, setClientId] = useState('');
   const [subject, setSubject] = useState('');
   const [description, setDescription] = useState('');
   const [subType, setSubType] = useState<TicketSubType>(TicketSubType.BUG);
@@ -32,6 +33,7 @@ export function NewTicketModal({ isOpen, onClose, onCreated }: NewTicketModalPro
     try {
       await createTicket({
         lab_name: labName.trim(),
+        client_id: clientId.trim(),
         subject: subject.trim(),
         description: description.trim(),
         sub_type: subType,
@@ -41,6 +43,7 @@ export function NewTicketModal({ isOpen, onClose, onCreated }: NewTicketModalPro
       });
       // Reset form
       setLabName('');
+      setClientId('');
       setSubject('');
       setDescription('');
       setSubType(TicketSubType.BUG);
@@ -84,6 +87,21 @@ export function NewTicketModal({ isOpen, onClose, onCreated }: NewTicketModalPro
                 required
                 className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                 placeholder="e.g. HealthLab Diagnostics"
+              />
+            </div>
+
+            <div>
+              <label htmlFor="clientId" className="block text-sm font-medium text-gray-700 mb-1">
+                Client ID <span className="text-red-500">*</span>
+              </label>
+              <input
+                id="clientId"
+                type="text"
+                value={clientId}
+                onChange={e => setClientId(e.target.value)}
+                required
+                className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                placeholder="e.g. CL-2045"
               />
             </div>
 

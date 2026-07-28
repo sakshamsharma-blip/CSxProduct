@@ -57,9 +57,31 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       .eq('id', userId)
       .single();
 
-    if (error) {
-      console.error('Error fetching app user:', error);
-      setAppUser(null);
+    if (error || !data) {
+      // Fallback: try to create profile from auth user metadata
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        const meta = user.user_metadata;
+        const { data: newProfile, error: insertError } = await supabase
+          .from('app_users')
+          .upsert({
+            id: user.id,
+            full_name: meta?.full_name || user.email?.split('@')[0] || 'User',
+            email: user.email || '',
+            role: meta?.role || 'CS_MANAGER',
+          }, { onConflict: 'id' })
+          .select('*')
+          .single();
+
+        if (!insertError && newProfile) {
+          setAppUser(newProfile as AppUser);
+        } else {
+          console.error('Error creating fallback profile:', insertError);
+          setAppUser(null);
+        }
+      } else {
+        setAppUser(null);
+      }
     } else {
       setAppUser(data as AppUser);
     }
@@ -72,7 +94,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   async function signUp(email: string, password: string, fullName: string, role: string) {
-    const { error } = await supabase.auth.signUp({
+    const { data, error } = await supabase.auth.signUp({
       email,
       password,
       options: {
@@ -82,7 +104,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         },
       },
     });
-    return { error: error as Error | null };
+    if (error) {
+      return { error: new Error(error.message || JSON.stringify(error)) };
+    }
+
+    // Fallback: ensure app_users row exists (in case trigger didn't fire)
+    if (data.user) {
+      const { error: profileError } = await supabase
+        .from('app_users')
+        .upsert({
+          id: data.user.id,
+          full_name: fullName,
+          email: email,
+          role: role,
+        }, { onConflict: 'id' });
+
+      if (profileError) {
+        console.error('Error creating app_users profile:', profileError);
+      }
+    }
+
+    return { error: null };
   }
 
   async function signOut() {

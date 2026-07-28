@@ -5,6 +5,7 @@ import { UserRole } from '../types';
 
 interface CreateTicketParams {
   lab_name: string;
+  client_id: string;
   subject: string;
   description: string;
   sub_type: TicketSubType;
@@ -18,6 +19,7 @@ export async function createTicket(params: CreateTicketParams) {
     .from('tickets')
     .insert([{
       lab_name: params.lab_name,
+      client_id: params.client_id,
       subject: params.subject,
       description: params.description,
       sub_type: params.sub_type,

@@ -21,14 +21,14 @@ export function LoginPage() {
     if (isSignUp) {
       const { error } = await signUp(email, password, fullName, role);
       if (error) {
-        setError(error.message);
+        setError(error.message || JSON.stringify(error));
       } else {
         setSignUpSuccess(true);
       }
     } else {
       const { error } = await signIn(email, password);
       if (error) {
-        setError(error.message);
+        setError(error.message || JSON.stringify(error));
       }
     }
     setLoading(false);

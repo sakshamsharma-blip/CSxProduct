@@ -60,12 +60,14 @@ export function useTicketLogs(ticketId: string | null) {
   return { logs, loading, refetch: fetchLogs };
 }
 
-export function filterTicketsByTab(tickets: Ticket[], tab: QueueTab): Ticket[] {
+export function filterTicketsByTab(tickets: Ticket[], tab: QueueTab, userId?: string): Ticket[] {
   const now = new Date();
 
   switch (tab) {
     case 'all':
       return tickets;
+    case 'my_tickets':
+      return tickets.filter(t => t.reporter_id === userId);
     case 'pending_cs':
       return tickets.filter(t => t.status === TicketStatus.NEW_ESCALATION);
     case 'pending_product': {
@@ -93,6 +95,21 @@ export function filterTicketsByTab(tickets: Ticket[], tab: QueueTab): Ticket[] {
     default:
       return tickets;
   }
+}
+
+// Filter tickets based on user role visibility
+export function getVisibleTickets(tickets: Ticket[], role: string, userId: string): Ticket[] {
+  if (role === 'PRODUCT_LEAD') {
+    // Product Lead only sees tickets escalated to product pipeline
+    return tickets.filter(t =>
+      t.status === TicketStatus.PENDING_PROD_REVIEW ||
+      t.status === TicketStatus.IN_PRODUCT_SCOPE ||
+      t.status === TicketStatus.ON_HOLD_UNTIL ||
+      t.status === TicketStatus.RESOLVED
+    );
+  }
+  // CS_MANAGER and CS_LEAD see all tickets
+  return tickets;
 }
 
 // SLA check: needs weekly update if IN_PRODUCT_SCOPE and last activity > 7 days

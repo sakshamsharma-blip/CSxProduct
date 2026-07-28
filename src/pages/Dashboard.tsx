@@ -4,17 +4,24 @@ import { QueueTabs } from '../components/QueueTabs';
 import { TicketTable } from '../components/TicketTable';
 import { TicketDrawer } from '../components/TicketDrawer';
 import { NewTicketModal } from '../components/NewTicketModal';
-import { useTickets, filterTicketsByTab } from '../hooks/useTickets';
-import { Ticket, QueueTab } from '../types';
+import { useTickets, filterTicketsByTab, getVisibleTickets } from '../hooks/useTickets';
+import { useAuth } from '../hooks/useAuth';
+import { Ticket, QueueTab, UserRole } from '../types';
 
 export function Dashboard() {
   const { tickets, loading, refetch } = useTickets();
+  const { appUser } = useAuth();
   const [activeTab, setActiveTab] = useState<QueueTab>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedTicket, setSelectedTicket] = useState<Ticket | null>(null);
   const [showNewModal, setShowNewModal] = useState(false);
 
-  const filteredTickets = filterTicketsByTab(tickets, activeTab);
+  const userRole = (appUser?.role as UserRole) || UserRole.CS_MANAGER;
+  const userId = appUser?.id || '';
+
+  // First apply role-based visibility, then tab filter
+  const visibleTickets = getVisibleTickets(tickets, userRole, userId);
+  const filteredTickets = filterTicketsByTab(visibleTickets, activeTab, userId);
 
   function handleSelectTicket(ticket: Ticket) {
     setSelectedTicket(ticket);
@@ -53,7 +60,13 @@ export function Dashboard() {
   return (
     <div className="h-screen flex flex-col bg-gray-50">
       <Navbar onNewRequest={() => setShowNewModal(true)} />
-      <QueueTabs activeTab={activeTab} onTabChange={setActiveTab} tickets={tickets} />
+      <QueueTabs
+        activeTab={activeTab}
+        onTabChange={setActiveTab}
+        tickets={visibleTickets}
+        userRole={userRole}
+        userId={userId}
+      />
 
       <div className="flex-1 flex overflow-hidden">
         <TicketTable
