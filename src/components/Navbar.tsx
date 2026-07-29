@@ -3,6 +3,8 @@ import { UserRole } from '../types';
 
 interface NavbarProps {
   onNewRequest: () => void;
+  onAnalytics: () => void;
+  currentPage: 'dashboard' | 'analytics';
 }
 
 const ROLE_LABELS: Record<UserRole, string> = {
@@ -17,10 +19,11 @@ const ROLE_BADGE_COLORS: Record<UserRole, string> = {
   [UserRole.PRODUCT_LEAD]: 'bg-purple-100 text-purple-800',
 };
 
-export function Navbar({ onNewRequest }: NavbarProps) {
+export function Navbar({ onNewRequest, onAnalytics, currentPage }: NavbarProps) {
   const { appUser, signOut } = useAuth();
 
   const canCreate = appUser?.role === UserRole.CS_MANAGER || appUser?.role === UserRole.CS_LEAD;
+  const canViewAnalytics = appUser?.role === UserRole.CS_LEAD || appUser?.role === UserRole.PRODUCT_LEAD;
 
   return (
     <nav className="bg-white border-b border-gray-200 px-4 py-3">
@@ -35,7 +38,21 @@ export function Navbar({ onNewRequest }: NavbarProps) {
 
         {/* Right: Actions + User Info */}
         <div className="flex items-center gap-4">
-          {canCreate && (
+          {/* Analytics Button */}
+          {canViewAnalytics && currentPage !== 'analytics' && (
+            <button
+              onClick={onAnalytics}
+              className="text-gray-600 hover:text-indigo-600 px-3 py-2 rounded-md text-sm font-medium transition-colors flex items-center gap-1"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                <path d="M2 11a1 1 0 011-1h2a1 1 0 011 1v5a1 1 0 01-1 1H3a1 1 0 01-1-1v-5zm6-4a1 1 0 011-1h2a1 1 0 011 1v9a1 1 0 01-1 1H9a1 1 0 01-1-1V7zm6-3a1 1 0 011-1h2a1 1 0 011 1v12a1 1 0 01-1 1h-2a1 1 0 01-1-1V4z" />
+              </svg>
+              Analytics
+            </button>
+          )}
+
+          {/* New Request Button */}
+          {canCreate && currentPage !== 'analytics' && (
             <button
               onClick={onNewRequest}
               className="bg-indigo-600 text-white px-4 py-2 rounded-md text-sm font-medium hover:bg-indigo-700 transition-colors flex items-center gap-1"

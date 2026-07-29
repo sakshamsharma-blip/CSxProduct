@@ -8,7 +8,11 @@ import { useTickets, filterTicketsByTab, getVisibleTickets } from '../hooks/useT
 import { useAuth } from '../hooks/useAuth';
 import { Ticket, QueueTab, UserRole } from '../types';
 
-export function Dashboard() {
+interface DashboardProps {
+  onNavigateAnalytics: () => void;
+}
+
+export function Dashboard({ onNavigateAnalytics }: DashboardProps) {
   const { tickets, loading, refetch } = useTickets();
   const { appUser } = useAuth();
   const [activeTab, setActiveTab] = useState<QueueTab>('all');
@@ -33,13 +37,14 @@ export function Dashboard() {
 
   function handleTicketUpdate() {
     refetch();
-    // Refresh selected ticket data
     if (selectedTicket) {
       setTimeout(() => {
-        const updated = tickets.find(t => t.id === selectedTicket.id);
-        if (updated) setSelectedTicket(updated);
-      }, 500);
+        refetch().then(() => {
+          // Will re-render with updated data
+        });
+      }, 300);
     }
+    setSelectedTicket(null);
   }
 
   function handleTicketCreated() {
@@ -59,7 +64,11 @@ export function Dashboard() {
 
   return (
     <div className="h-screen flex flex-col bg-gray-50">
-      <Navbar onNewRequest={() => setShowNewModal(true)} />
+      <Navbar
+        onNewRequest={() => setShowNewModal(true)}
+        onAnalytics={onNavigateAnalytics}
+        currentPage="dashboard"
+      />
       <QueueTabs
         activeTab={activeTab}
         onTabChange={setActiveTab}

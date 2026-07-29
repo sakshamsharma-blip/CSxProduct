@@ -1,9 +1,15 @@
+import { useState } from 'react';
 import { AuthProvider, useAuth } from './hooks/useAuth';
 import { LoginPage } from './pages/LoginPage';
 import { Dashboard } from './pages/Dashboard';
+import { AnalyticsPage } from './pages/AnalyticsPage';
+import { UserRole } from './types';
+
+type Page = 'dashboard' | 'analytics';
 
 function AppContent() {
-  const { session, loading } = useAuth();
+  const { session, appUser, loading } = useAuth();
+  const [currentPage, setCurrentPage] = useState<Page>('dashboard');
 
   if (loading) {
     return (
@@ -17,7 +23,14 @@ function AppContent() {
     return <LoginPage />;
   }
 
-  return <Dashboard />;
+  // Only CS Lead and Product Lead can access analytics
+  const canViewAnalytics = appUser?.role === UserRole.CS_LEAD || appUser?.role === UserRole.PRODUCT_LEAD;
+
+  if (currentPage === 'analytics' && canViewAnalytics) {
+    return <AnalyticsPage onBack={() => setCurrentPage('dashboard')} />;
+  }
+
+  return <Dashboard onNavigateAnalytics={() => setCurrentPage('analytics')} />;
 }
 
 function App() {
