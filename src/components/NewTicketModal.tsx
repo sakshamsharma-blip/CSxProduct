@@ -85,7 +85,7 @@ export function NewTicketModal({ isOpen, onClose, onCreated }: NewTicketModalPro
                 value={labName}
                 onChange={e => setLabName(e.target.value)}
                 required
-                className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-600"
                 placeholder="e.g. HealthLab Diagnostics"
               />
             </div>
@@ -100,7 +100,7 @@ export function NewTicketModal({ isOpen, onClose, onCreated }: NewTicketModalPro
                 value={clientId}
                 onChange={e => setClientId(e.target.value)}
                 required
-                className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-600"
                 placeholder="e.g. CL-2045"
               />
             </div>
@@ -115,7 +115,7 @@ export function NewTicketModal({ isOpen, onClose, onCreated }: NewTicketModalPro
                 value={subject}
                 onChange={e => setSubject(e.target.value)}
                 required
-                className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-600"
                 placeholder="Brief issue title"
               />
             </div>
@@ -129,7 +129,7 @@ export function NewTicketModal({ isOpen, onClose, onCreated }: NewTicketModalPro
                 value={description}
                 onChange={e => setDescription(e.target.value)}
                 rows={4}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-600"
                 placeholder="Detailed description of the issue..."
               />
             </div>
@@ -143,7 +143,7 @@ export function NewTicketModal({ isOpen, onClose, onCreated }: NewTicketModalPro
                   id="subType"
                   value={subType}
                   onChange={e => setSubType(e.target.value as TicketSubType)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-600"
                 >
                   <option value={TicketSubType.BUG}>Bug</option>
                   <option value={TicketSubType.ENHANCEMENT}>Enhancement</option>
@@ -160,7 +160,7 @@ export function NewTicketModal({ isOpen, onClose, onCreated }: NewTicketModalPro
                   id="priority"
                   value={priority}
                   onChange={e => setPriority(e.target.value as Priority)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-600"
                 >
                   <option value={Priority.LOW}>Low</option>
                   <option value={Priority.MEDIUM}>Medium</option>
@@ -179,7 +179,7 @@ export function NewTicketModal({ isOpen, onClose, onCreated }: NewTicketModalPro
                 type="text"
                 value={freshdeskId}
                 onChange={e => setFreshdeskId(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-600"
                 placeholder="e.g. FD-12345"
               />
             </div>
@@ -194,7 +194,7 @@ export function NewTicketModal({ isOpen, onClose, onCreated }: NewTicketModalPro
               <button
                 type="submit"
                 disabled={loading}
-                className="flex-1 bg-indigo-600 text-white py-2 px-4 rounded-md text-sm font-medium hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                className="flex-1 bg-green-600 text-white py-2 px-4 rounded-md text-sm font-medium hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
               >
                 {loading ? 'Creating...' : 'Create Request'}
               </button>

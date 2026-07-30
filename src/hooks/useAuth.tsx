@@ -9,8 +9,9 @@ interface AuthContextType {
   appUser: AppUser | null;
   loading: boolean;
   signIn: (email: string, password: string) => Promise<{ error: Error | null }>;
-  signUp: (email: string, password: string, fullName: string, role: string) => Promise<{ error: Error | null }>;
   signOut: () => Promise<void>;
+  resetPassword: (email: string) => Promise<{ error: Error | null }>;
+  changePassword: (newPassword: string) => Promise<{ error: Error | null }>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -93,38 +94,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return { error: error as Error | null };
   }
 
-  async function signUp(email: string, password: string, fullName: string, role: string) {
-    const { data, error } = await supabase.auth.signUp({
-      email,
-      password,
-      options: {
-        data: {
-          full_name: fullName,
-          role: role,
-        },
-      },
+  async function resetPassword(email: string) {
+    const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo: `${window.location.origin}`,
     });
-    if (error) {
-      return { error: new Error(error.message || JSON.stringify(error)) };
-    }
+    return { error: error as Error | null };
+  }
 
-    // Fallback: ensure app_users row exists (in case trigger didn't fire)
-    if (data.user) {
-      const { error: profileError } = await supabase
-        .from('app_users')
-        .upsert({
-          id: data.user.id,
-          full_name: fullName,
-          email: email,
-          role: role,
-        }, { onConflict: 'id' });
-
-      if (profileError) {
-        console.error('Error creating app_users profile:', profileError);
-      }
-    }
-
-    return { error: null };
+  async function changePassword(newPassword: string) {
+    const { error } = await supabase.auth.updateUser({ password: newPassword });
+    return { error: error as Error | null };
   }
 
   async function signOut() {
@@ -133,7 +112,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   return (
-    <AuthContext.Provider value={{ session, user, appUser, loading, signIn, signUp, signOut }}>
+    <AuthContext.Provider value={{ session, user, appUser, loading, signIn, signOut, resetPassword, changePassword }}>
       {children}
     </AuthContext.Provider>
   );

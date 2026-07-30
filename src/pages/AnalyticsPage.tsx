@@ -12,12 +12,15 @@ import {
 } from '../lib/analytics';
 import { getDaysSinceCreated } from '../hooks/useTickets';
 
-const PIE_COLORS = ['#6366f1', '#f59e0b', '#10b981', '#ef4444', '#8b5cf6', '#06b6d4'];
+// Built around the CrelioHealth green/blue pair, with neutrals filling out the series.
+const BRAND_GREEN = '#3BA935';
+const BRAND_BLUE = '#1A73E8';
+const PIE_COLORS = [BRAND_GREEN, BRAND_BLUE, '#7FC878', '#8FB6F6', '#F59E0B', '#9CA3AF'];
 const PRIORITY_BAR_COLORS: Record<string, string> = {
-  CRITICAL: '#ef4444',
-  HIGH: '#f97316',
-  MEDIUM: '#3b82f6',
-  LOW: '#9ca3af',
+  CRITICAL: '#DC2626',
+  HIGH: '#F97316',
+  MEDIUM: BRAND_BLUE,
+  LOW: '#9CA3AF',
 };
 
 export function AnalyticsPage({ onBack }: { onBack: () => void }) {
@@ -45,7 +48,7 @@ export function AnalyticsPage({ onBack }: { onBack: () => void }) {
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <div className="w-8 h-8 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin"></div>
+        <div className="w-8 h-8 border-4 border-green-600 border-t-transparent rounded-full animate-spin"></div>
       </div>
     );
   }
@@ -80,7 +83,7 @@ export function AnalyticsPage({ onBack }: { onBack: () => void }) {
             <select
               value={period}
               onChange={e => setPeriod(e.target.value as TimePeriod)}
-              className="px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              className="px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
             >
               <option value="this_week">This Week</option>
               <option value="mtd">Month to Date</option>
@@ -146,7 +149,7 @@ export function AnalyticsPage({ onBack }: { onBack: () => void }) {
                 <Tooltip />
                 <Bar dataKey="value" name="Tickets">
                   {priorityData.map((entry, i) => (
-                    <Cell key={i} fill={PRIORITY_BAR_COLORS[entry.name] || '#6366f1'} />
+                    <Cell key={i} fill={PRIORITY_BAR_COLORS[entry.name] || BRAND_BLUE} />
                   ))}
                 </Bar>
               </BarChart>
@@ -165,8 +168,8 @@ export function AnalyticsPage({ onBack }: { onBack: () => void }) {
                 <YAxis fontSize={12} />
                 <Tooltip />
                 <Legend />
-                <Line type="monotone" dataKey="raised" stroke="#6366f1" strokeWidth={2} name="Raised" />
-                <Line type="monotone" dataKey="resolved" stroke="#10b981" strokeWidth={2} name="Resolved" />
+                <Line type="monotone" dataKey="raised" stroke={BRAND_BLUE} strokeWidth={2} name="Raised" />
+                <Line type="monotone" dataKey="resolved" stroke={BRAND_GREEN} strokeWidth={2} name="Resolved" />
               </LineChart>
             </ResponsiveContainer>
           </ChartCard>
@@ -179,7 +182,7 @@ export function AnalyticsPage({ onBack }: { onBack: () => void }) {
                 <XAxis type="number" fontSize={12} />
                 <YAxis type="category" dataKey="name" fontSize={11} width={120} />
                 <Tooltip />
-                <Bar dataKey="value" fill="#6366f1" name="Tickets" />
+                <Bar dataKey="value" fill={BRAND_BLUE} name="Tickets" />
               </BarChart>
             </ResponsiveContainer>
           </ChartCard>
@@ -194,10 +197,10 @@ export function AnalyticsPage({ onBack }: { onBack: () => void }) {
               <YAxis fontSize={12} />
               <Tooltip />
               <Legend />
-              <Bar dataKey="bugs" stackId="a" fill="#ef4444" name="Bugs" />
-              <Bar dataKey="enhancements" stackId="a" fill="#f59e0b" name="Enhancements" />
-              <Bar dataKey="features" stackId="a" fill="#6366f1" name="Features" />
-              <Bar dataKey="configs" stackId="a" fill="#8b5cf6" name="Config" />
+              <Bar dataKey="bugs" stackId="a" fill="#DC2626" name="Bugs" />
+              <Bar dataKey="enhancements" stackId="a" fill="#F59E0B" name="Enhancements" />
+              <Bar dataKey="features" stackId="a" fill={BRAND_BLUE} name="Features" />
+              <Bar dataKey="configs" stackId="a" fill={BRAND_GREEN} name="Config" />
             </BarChart>
           </ResponsiveContainer>
         </ChartCard>
@@ -211,8 +214,8 @@ export function AnalyticsPage({ onBack }: { onBack: () => void }) {
                 <button
                   key={i}
                   onClick={() => setSelectedClient(client)}
-                  className={`w-full flex items-center justify-between px-3 py-2 rounded-md text-sm hover:bg-indigo-50 transition-colors ${
-                    selectedClient?.clientId === client.clientId ? 'bg-indigo-50 border border-indigo-200' : ''
+                  className={`w-full flex items-center justify-between px-3 py-2 rounded-md text-sm hover:bg-blue-50 transition-colors ${
+                    selectedClient?.clientId === client.clientId ? 'bg-blue-50 border border-blue-200' : ''
                   }`}
                 >
                   <div className="text-left">

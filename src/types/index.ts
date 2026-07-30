@@ -118,6 +118,7 @@ export const STATUS_LABELS: Record<TicketStatus, string> = {
   [TicketStatus.CLOSED]: 'Closed',
 };
 
+// Priority stays semantic (red → orange → blue → gray) so severity reads at a glance.
 export const PRIORITY_COLORS: Record<Priority, string> = {
   [Priority.LOW]: 'bg-gray-100 text-gray-700',
   [Priority.MEDIUM]: 'bg-blue-100 text-blue-700',
@@ -125,6 +126,8 @@ export const PRIORITY_COLORS: Record<Priority, string> = {
   [Priority.CRITICAL]: 'bg-red-100 text-red-700',
 };
 
+// Mapped to the pill convention used across the CrelioHealth LIMS UI:
+// amber = waiting on someone, blue = in progress, green = done, gray = parked/closed.
 export const STATUS_COLORS: Record<TicketStatus, string> = {
   [TicketStatus.NEW_ESCALATION]: 'bg-yellow-100 text-yellow-800',
   [TicketStatus.RESOLVED_BY_CS]: 'bg-emerald-100 text-emerald-800',
@@ -159,7 +162,7 @@ export const PRIORITY_ORDER: Record<Priority, number> = {
 // as "Reopened" so CS Lead / Product Lead can spot it and prioritise accordingly.
 
 export const REOPENED_LABEL = 'Reopened';
-export const REOPENED_COLOR = 'bg-rose-100 text-rose-800 ring-1 ring-rose-300';
+export const REOPENED_COLOR = 'bg-red-100 text-red-700';
 
 type StatusDisplaySource = Pick<Ticket, 'status' | 'is_reopened'>;
 

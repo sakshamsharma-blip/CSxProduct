@@ -6,6 +6,7 @@ export function useTickets() {
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [holdExpiredCount, setHoldExpiredCount] = useState(0);
 
   const fetchTickets = useCallback(async () => {
     setLoading(true);
@@ -17,7 +18,48 @@ export function useTickets() {
     if (error) {
       setError(error.message);
     } else {
-      setTickets(data as Ticket[]);
+      const ticketList = data as Ticket[];
+
+      // Auto-transition expired holds to PENDING_PROD_REVIEW
+      const expired = ticketList.filter(t =>
+        t.status === TicketStatus.ON_HOLD_UNTIL &&
+        t.hold_until_date &&
+        new Date(t.hold_until_date) <= new Date()
+      );
+
+      if (expired.length > 0) {
+        setHoldExpiredCount(expired.length);
+        const expiredIds = expired.map(t => t.id);
+
+        // Update all expired tickets to PENDING_PROD_REVIEW
+        await supabase
+          .from('tickets')
+          .update({
+            status: TicketStatus.PENDING_PROD_REVIEW,
+            hold_until_date: null,
+          })
+          .in('id', expiredIds);
+
+        // Add audit log entries
+        const logEntries = expired.map(t => ({
+          ticket_id: t.id,
+          author_id: t.reporter_id,
+          comment: `Hold period expired — automatically moved back to review.`,
+          previous_status: TicketStatus.ON_HOLD_UNTIL,
+          new_status: TicketStatus.PENDING_PROD_REVIEW,
+          hold_target_date: null,
+        }));
+        await supabase.from('update_logs').insert(logEntries);
+
+        // Re-fetch to get updated data
+        const { data: refreshed } = await supabase
+          .from('tickets')
+          .select('*, reporter:app_users!reporter_id(*)')
+          .order('created_at', { ascending: false });
+        if (refreshed) setTickets(refreshed as Ticket[]);
+      } else {
+        setTickets(ticketList);
+      }
     }
     setLoading(false);
   }, []);
@@ -26,7 +68,7 @@ export function useTickets() {
     fetchTickets();
   }, [fetchTickets]);
 
-  return { tickets, loading, error, refetch: fetchTickets };
+  return { tickets, loading, error, refetch: fetchTickets, holdExpiredCount };
 }
 
 export function useTicketLogs(ticketId: string | null) {
@@ -95,19 +137,12 @@ export function filterTicketsByTab(tickets: Ticket[], tab: QueueTab, userId?: st
       return tickets.filter(t => t.status === TicketStatus.NEW_ESCALATION);
     case 'pending_product':
       return tickets.filter(t =>
-        t.status === TicketStatus.PENDING_PROD_REVIEW ||
-        (t.status === TicketStatus.ON_HOLD_UNTIL &&
-          t.hold_until_date &&
-          new Date(t.hold_until_date) <= now)
+        t.status === TicketStatus.PENDING_PROD_REVIEW
       );
     case 'in_scope':
       return tickets.filter(t => t.status === TicketStatus.IN_PRODUCT_SCOPE);
     case 'on_hold':
-      return tickets.filter(t =>
-        t.status === TicketStatus.ON_HOLD_UNTIL &&
-        t.hold_until_date &&
-        new Date(t.hold_until_date) > now
-      );
+      return tickets.filter(t => t.status === TicketStatus.ON_HOLD_UNTIL);
     case 'resolved':
       return tickets.filter(t =>
         t.status === TicketStatus.RESOLVED ||
@@ -194,4 +229,33 @@ export function getDaysSinceCreated(ticket: Ticket): number {
   const now = new Date();
   const diffMs = now.getTime() - created.getTime();
   return Math.floor(diffMs / (1000 * 60 * 60 * 24));
+}
+
+// ===== ATTENTION FLAGS (data-driven, persist until action is taken) =====
+// These drive both the row highlighting and notification banners.
+// They clear automatically once Product Lead takes the relevant action.
+
+export type AttentionReason = 'hold_expired' | 'sla_breach';
+
+export interface AttentionFlag {
+  ticketId: string;
+  reason: AttentionReason;
+}
+
+export function getAttentionTickets(tickets: Ticket[]): AttentionFlag[] {
+  const flags: AttentionFlag[] = [];
+
+  for (const t of tickets) {
+    // SLA breach: IN_PRODUCT_SCOPE and no update for 7+ days
+    if (needsWeeklyUpdate(t)) {
+      flags.push({ ticketId: t.id, reason: 'sla_breach' });
+    }
+  }
+
+  return flags;
+}
+
+export function ticketNeedsAttention(ticket: Ticket, attentionFlags: AttentionFlag[]): AttentionReason | null {
+  const flag = attentionFlags.find(f => f.ticketId === ticket.id);
+  return flag?.reason || null;
 }

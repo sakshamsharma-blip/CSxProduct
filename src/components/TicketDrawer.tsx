@@ -32,6 +32,7 @@ function describeError(err: unknown, fallback: string): string {
   return fallback;
 }
 
+// Green = resolving/completing work, blue = moving it forward, gray = parking, red = reopening.
 const TRANSITION_BUTTON_LABELS: Record<string, { label: string; color: string }> = {
   RESOLVED_BY_CS: { label: 'Solve Internally', color: 'bg-emerald-600 hover:bg-emerald-700' },
   PENDING_PROD_REVIEW: { label: 'Escalate to Product', color: 'bg-purple-600 hover:bg-purple-700' },
@@ -195,7 +196,7 @@ export function TicketDrawer({ ticket, onClose, onUpdate }: TicketDrawerProps) {
             </span>
             {/* Once a reopened ticket moves past triage, keep a marker so leads still see the history */}
             {ticket.is_reopened && !isReopenedPending(ticket) && (
-              <span className="px-2 py-0.5 rounded text-xs font-medium bg-rose-100 text-rose-800">
+              <span className="px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-700">
                 Reopened
               </span>
             )}
@@ -247,7 +248,7 @@ export function TicketDrawer({ ticket, onClose, onUpdate }: TicketDrawerProps) {
                     value={ticket.priority}
                     onChange={e => handlePriorityChange(e.target.value as Priority)}
                     disabled={actionLoading}
-                    className="px-2 py-1.5 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    className="px-2 py-1.5 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                   >
                     <option value={Priority.LOW}>Low</option>
                     <option value={Priority.MEDIUM}>Medium</option>
@@ -263,7 +264,7 @@ export function TicketDrawer({ ticket, onClose, onUpdate }: TicketDrawerProps) {
                     value={ticket.sprint_status || ''}
                     onChange={e => handleSprintStatusChange(e.target.value as SprintStatus)}
                     disabled={actionLoading}
-                    className="px-2 py-1.5 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    className="px-2 py-1.5 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                   >
                     <option value="" disabled>Select...</option>
                     <option value={SprintStatus.IN_SPRINT}>In Sprint</option>
@@ -287,7 +288,7 @@ export function TicketDrawer({ ticket, onClose, onUpdate }: TicketDrawerProps) {
               onChange={e => setComment(e.target.value)}
               placeholder="Add a comment (required for actions)..."
               rows={3}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 mb-3"
+              className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-600 mb-3"
             />
 
             {/* Hold date picker */}
@@ -299,7 +300,7 @@ export function TicketDrawer({ ticket, onClose, onUpdate }: TicketDrawerProps) {
                   value={holdDate}
                   onChange={e => setHoldDate(e.target.value)}
                   min={new Date().toISOString().split('T')[0]}
-                  className="px-3 py-1.5 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  className="px-3 py-1.5 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
               </div>
             )}
@@ -313,7 +314,7 @@ export function TicketDrawer({ ticket, onClose, onUpdate }: TicketDrawerProps) {
             {/* Action buttons */}
             <div className="flex flex-wrap gap-2">
               {availableTransitions.map(status => {
-                const btn = TRANSITION_BUTTON_LABELS[status] || { label: status, color: 'bg-indigo-600 hover:bg-indigo-700' };
+                const btn = TRANSITION_BUTTON_LABELS[status] || { label: status, color: 'bg-green-600 hover:bg-green-700' };
                 return (
                   <button
                     key={status}
@@ -329,7 +330,7 @@ export function TicketDrawer({ ticket, onClose, onUpdate }: TicketDrawerProps) {
                 <button
                   onClick={handlePostUpdate}
                   disabled={actionLoading}
-                  className="px-3 py-1.5 rounded-md text-xs font-medium bg-blue-500 text-white hover:bg-blue-600 disabled:opacity-50 transition-colors"
+                  className="px-3 py-1.5 rounded-md text-xs font-medium bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 transition-colors"
                 >
                   Post Weekly Update
                 </button>
@@ -338,7 +339,7 @@ export function TicketDrawer({ ticket, onClose, onUpdate }: TicketDrawerProps) {
                 <button
                   onClick={handleRevert}
                   disabled={actionLoading}
-                  className="px-3 py-1.5 rounded-md text-xs font-medium bg-gray-500 text-white hover:bg-gray-600 disabled:opacity-50 transition-colors"
+                  className="px-3 py-1.5 rounded-md text-xs font-medium border border-gray-300 text-gray-600 bg-white hover:bg-gray-50 disabled:opacity-50 transition-colors"
                 >
                   ↩ Revert Last Action
                 </button>
@@ -377,11 +378,11 @@ function TimelineEntry({ log }: { log: UpdateLog }) {
     (log.previous_status === TicketStatus.RESOLVED || log.previous_status === TicketStatus.RESOLVED_BY_CS);
 
   const newStatusLabel = isReopenEntry ? 'Reopened' : STATUS_LABELS[log.new_status as TicketStatus];
-  const newStatusColor = isReopenEntry ? 'bg-rose-100 text-rose-800' : STATUS_COLORS[log.new_status as TicketStatus];
+  const newStatusColor = isReopenEntry ? 'bg-red-100 text-red-700' : STATUS_COLORS[log.new_status as TicketStatus];
 
   return (
     <div className="relative pl-6 pb-4 border-l-2 border-gray-200 last:border-l-0">
-      <div className="absolute left-[-5px] top-1 w-2 h-2 bg-indigo-500 rounded-full"></div>
+      <div className="absolute left-[-5px] top-1 w-2 h-2 bg-blue-600 rounded-full"></div>
       <div className="flex items-center gap-2 mb-1 flex-wrap">
         <span className="text-sm font-medium text-gray-900">{log.author?.full_name || 'Unknown'}</span>
         <span className="text-xs px-1.5 py-0.5 rounded bg-gray-100 text-gray-500">

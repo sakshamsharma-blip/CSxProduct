@@ -6,7 +6,7 @@ import {
   getStatusLabel, getStatusColor, isReopenedPending,
   REOPENED_LABEL, REOPENED_COLOR
 } from '../types';
-import { needsWeeklyUpdate, isHoldExpired, getDaysSinceCreated, sortTickets, applyFilters } from '../hooks/useTickets';
+import { needsWeeklyUpdate, isHoldExpired, getDaysSinceCreated, sortTickets, applyFilters, AttentionFlag, ticketNeedsAttention } from '../hooks/useTickets';
 
 interface TicketTableProps {
   tickets: Ticket[];
@@ -14,9 +14,10 @@ interface TicketTableProps {
   onSearchChange: (q: string) => void;
   onSelectTicket: (ticket: Ticket) => void;
   selectedTicketId: string | null;
+  attentionFlags?: AttentionFlag[];
 }
 
-export function TicketTable({ tickets, searchQuery, onSearchChange, onSelectTicket, selectedTicketId }: TicketTableProps) {
+export function TicketTable({ tickets, searchQuery, onSearchChange, onSelectTicket, selectedTicketId, attentionFlags = [] }: TicketTableProps) {
   const [sort, setSort] = useState<SortConfig>({ field: 'created_at', direction: 'desc' });
   const [filters, setFilters] = useState<FilterConfig>({ priority: 'ALL', subType: 'ALL', status: 'ALL' });
 
@@ -63,14 +64,14 @@ export function TicketTable({ tickets, searchQuery, onSearchChange, onSelectTick
             value={searchQuery}
             onChange={e => onSearchChange(e.target.value)}
             placeholder="Search by Lab, Subject, Client ID, or Freshdesk..."
-            className="flex-1 min-w-[200px] max-w-md px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+            className="flex-1 min-w-[200px] max-w-md px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-600"
           />
 
           {/* Priority Filter */}
           <select
             value={filters.priority}
             onChange={e => setFilters(f => ({ ...f, priority: e.target.value as Priority | 'ALL' }))}
-            className="px-2 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            className="px-2 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
           >
             <option value="ALL">All Priorities</option>
             <option value={Priority.CRITICAL}>Critical</option>
@@ -83,7 +84,7 @@ export function TicketTable({ tickets, searchQuery, onSearchChange, onSelectTick
           <select
             value={filters.subType}
             onChange={e => setFilters(f => ({ ...f, subType: e.target.value as TicketSubType | 'ALL' }))}
-            className="px-2 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            className="px-2 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
           >
             <option value="ALL">All Types</option>
             <option value={TicketSubType.BUG}>Bug</option>
@@ -96,7 +97,7 @@ export function TicketTable({ tickets, searchQuery, onSearchChange, onSelectTick
           <select
             value={filters.status}
             onChange={e => setFilters(f => ({ ...f, status: e.target.value as TicketStatus | 'ALL' | 'REOPENED' }))}
-            className="px-2 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            className="px-2 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
           >
             <option value="ALL">All Statuses</option>
             <option value="REOPENED">Reopened</option>
@@ -113,7 +114,7 @@ export function TicketTable({ tickets, searchQuery, onSearchChange, onSelectTick
           {(filters.priority !== 'ALL' || filters.subType !== 'ALL' || filters.status !== 'ALL') && (
             <button
               onClick={() => setFilters({ priority: 'ALL', subType: 'ALL', status: 'ALL' })}
-              className="px-2 py-2 text-xs text-indigo-600 hover:text-indigo-800 font-medium"
+              className="px-2 py-2 text-xs text-blue-600 hover:text-blue-800 font-medium"
             >
               Clear filters
             </button>
@@ -121,43 +122,53 @@ export function TicketTable({ tickets, searchQuery, onSearchChange, onSelectTick
         </div>
       </div>
 
+      {/* Row count, mirroring the "Rows: N" readout used across the LIMS tables */}
+      <div className="px-4 py-1.5 bg-white border-b border-hairline">
+        <span className="text-xs text-gray-500">
+          Rows: <span className="font-semibold text-gray-700">{sorted.length}</span>
+          {sorted.length !== tickets.length && (
+            <span className="text-gray-400"> of {tickets.length}</span>
+          )}
+        </span>
+      </div>
+
       {/* Table */}
       <div className="flex-1 overflow-auto">
         <table className="w-full text-sm">
-          <thead className="bg-gray-50 sticky top-0">
+          <thead className="bg-[#F1F3F5] sticky top-0 border-b border-hairline">
             <tr>
-              <th className="text-left px-4 py-3 font-medium text-gray-500 uppercase text-xs">ID</th>
+              <th className="text-left px-3 py-2 font-semibold text-gray-600 text-xs whitespace-nowrap">ID</th>
               <th
-                className="text-left px-4 py-3 font-medium text-gray-500 uppercase text-xs cursor-pointer hover:text-gray-700"
+                className="text-left px-3 py-2 font-semibold text-gray-600 text-xs whitespace-nowrap cursor-pointer hover:text-gray-700"
                 onClick={() => handleSort('lab_name')}
               >
                 Lab / Client <SortIcon field="lab_name" />
               </th>
-              <th className="text-left px-4 py-3 font-medium text-gray-500 uppercase text-xs">Subject</th>
-              <th className="text-left px-4 py-3 font-medium text-gray-500 uppercase text-xs">Type</th>
+              <th className="text-left px-3 py-2 font-semibold text-gray-600 text-xs whitespace-nowrap">Subject</th>
+              <th className="text-left px-3 py-2 font-semibold text-gray-600 text-xs whitespace-nowrap">Type</th>
               <th
-                className="text-left px-4 py-3 font-medium text-gray-500 uppercase text-xs cursor-pointer hover:text-gray-700"
+                className="text-left px-3 py-2 font-semibold text-gray-600 text-xs whitespace-nowrap cursor-pointer hover:text-gray-700"
                 onClick={() => handleSort('priority')}
               >
                 Priority <SortIcon field="priority" />
               </th>
               <th
-                className="text-left px-4 py-3 font-medium text-gray-500 uppercase text-xs cursor-pointer hover:text-gray-700"
+                className="text-left px-3 py-2 font-semibold text-gray-600 text-xs whitespace-nowrap cursor-pointer hover:text-gray-700"
                 onClick={() => handleSort('status')}
               >
                 Status <SortIcon field="status" />
               </th>
-              <th className="text-left px-4 py-3 font-medium text-gray-500 uppercase text-xs">Sprint</th>
-              <th className="text-left px-4 py-3 font-medium text-gray-500 uppercase text-xs">SLA</th>
-              <th className="text-left px-4 py-3 font-medium text-gray-500 uppercase text-xs">Created By</th>
+              <th className="text-left px-3 py-2 font-semibold text-gray-600 text-xs whitespace-nowrap">Sprint</th>
+              <th className="text-left px-3 py-2 font-semibold text-gray-600 text-xs whitespace-nowrap">SLA</th>
+              <th className="text-left px-3 py-2 font-semibold text-gray-600 text-xs whitespace-nowrap">Created By</th>
               <th
-                className="text-left px-4 py-3 font-medium text-gray-500 uppercase text-xs cursor-pointer hover:text-gray-700"
+                className="text-left px-3 py-2 font-semibold text-gray-600 text-xs whitespace-nowrap cursor-pointer hover:text-gray-700"
                 onClick={() => handleSort('days_since')}
               >
                 Age <SortIcon field="days_since" />
               </th>
               <th
-                className="text-left px-4 py-3 font-medium text-gray-500 uppercase text-xs cursor-pointer hover:text-gray-700"
+                className="text-left px-3 py-2 font-semibold text-gray-600 text-xs whitespace-nowrap cursor-pointer hover:text-gray-700"
                 onClick={() => handleSort('updated_at')}
               >
                 Updated <SortIcon field="updated_at" />
@@ -176,32 +187,38 @@ export function TicketTable({ tickets, searchQuery, onSearchChange, onSelectTick
             ) : (
               sorted.map(ticket => {
                 const days = getDaysSinceCreated(ticket);
+                const attention = ticketNeedsAttention(ticket, attentionFlags);
+                const attentionClass = attention === 'sla_breach'
+                  ? 'border-l-4 border-l-red-400 bg-red-50/40'
+                  : attention === 'hold_expired'
+                  ? 'border-l-4 border-l-orange-400 bg-orange-50/40'
+                  : '';
                 return (
                   <tr
                     key={ticket.id}
                     onClick={() => onSelectTicket(ticket)}
-                    className={`cursor-pointer hover:bg-indigo-50 transition-colors ${
-                      selectedTicketId === ticket.id ? 'bg-indigo-50' : ''
-                    } ${ticket.is_reopened ? 'border-l-4 border-l-rose-400' : ''}`}
+                    className={`cursor-pointer hover:bg-blue-50 transition-colors ${
+                      selectedTicketId === ticket.id ? 'bg-blue-50' : ''
+                    } ${ticket.is_reopened ? 'border-l-4 border-l-red-500' : ''} ${attentionClass}`}
                   >
-                    <td className="px-4 py-3 font-mono text-xs text-gray-600">
+                    <td className="px-3 py-2 font-mono text-xs text-gray-600">
                       {ticket.custom_id}
-                      {ticket.is_reopened && <span className="ml-1 text-rose-500" title="This ticket was reopened">🔄</span>}
+                      {ticket.is_reopened && <span className="ml-1 text-red-600" title="This ticket was reopened">🔄</span>}
                     </td>
-                    <td className="px-4 py-3 max-w-[140px]">
+                    <td className="px-3 py-2 max-w-[140px]">
                       <div className="font-medium text-gray-900 truncate">{ticket.lab_name}</div>
                       <div className="text-xs text-gray-400 truncate">{ticket.client_id}</div>
                     </td>
-                    <td className="px-4 py-3 text-gray-700 max-w-[180px] truncate">{ticket.subject}</td>
-                    <td className="px-4 py-3">
+                    <td className="px-3 py-2 text-gray-700 max-w-[180px] truncate">{ticket.subject}</td>
+                    <td className="px-3 py-2">
                       <span className="text-xs text-gray-500">{ticket.sub_type.replace('_', ' ')}</span>
                     </td>
-                    <td className="px-4 py-3">
+                    <td className="px-3 py-2">
                       <span className={`px-2 py-0.5 rounded text-xs font-medium ${PRIORITY_COLORS[ticket.priority as Priority]}`}>
                         {ticket.priority}
                       </span>
                     </td>
-                    <td className="px-4 py-3">
+                    <td className="px-3 py-2">
                       <div className="flex flex-wrap items-center gap-1">
                         <span className={`px-2 py-0.5 rounded text-xs font-medium ${getStatusColor(ticket)}`}>
                           {getStatusLabel(ticket)}
@@ -214,7 +231,7 @@ export function TicketTable({ tickets, searchQuery, onSearchChange, onSelectTick
                         )}
                       </div>
                     </td>
-                    <td className="px-4 py-3">
+                    <td className="px-3 py-2">
                       {ticket.sprint_status ? (
                         <span className={`px-2 py-0.5 rounded text-xs font-medium ${SPRINT_STATUS_COLORS[ticket.sprint_status as SprintStatus]}`}>
                           {SPRINT_STATUS_LABELS[ticket.sprint_status as SprintStatus]}
@@ -223,18 +240,18 @@ export function TicketTable({ tickets, searchQuery, onSearchChange, onSelectTick
                         <span className="text-xs text-gray-300">—</span>
                       )}
                     </td>
-                    <td className="px-4 py-3">
+                    <td className="px-3 py-2">
                       <SLABadge ticket={ticket} />
                     </td>
-                    <td className="px-4 py-3 text-xs text-gray-500">
+                    <td className="px-3 py-2 text-xs text-gray-500">
                       {ticket.reporter?.full_name || '—'}
                     </td>
-                    <td className="px-4 py-3">
+                    <td className="px-3 py-2">
                       <span className={`text-xs font-medium ${days > 14 ? 'text-red-600' : days > 7 ? 'text-orange-500' : 'text-gray-500'}`}>
                         {days}d
                       </span>
                     </td>
-                    <td className="px-4 py-3 text-xs text-gray-400">
+                    <td className="px-3 py-2 text-xs text-gray-400">
                       {formatRelative(ticket.updated_at)}
                     </td>
                   </tr>

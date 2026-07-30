@@ -1,107 +1,45 @@
 import { useState } from 'react';
 import { useAuth } from '../hooks/useAuth';
-import { UserRole } from '../types';
+import { BrandLogo } from '../components/BrandLogo';
 
 export function LoginPage() {
-  const { signIn, signUp } = useAuth();
-  const [isSignUp, setIsSignUp] = useState(false);
+  const { signIn } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [fullName, setFullName] = useState('');
-  const [role, setRole] = useState<UserRole>(UserRole.CS_MANAGER);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  const [signUpSuccess, setSignUpSuccess] = useState(false);
+  const [showForgotPassword, setShowForgotPassword] = useState(false);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError('');
     setLoading(true);
 
-    if (isSignUp) {
-      const { error } = await signUp(email, password, fullName, role);
-      if (error) {
-        setError(error.message || JSON.stringify(error));
-      } else {
-        setSignUpSuccess(true);
-      }
-    } else {
-      const { error } = await signIn(email, password);
-      if (error) {
-        setError(error.message || JSON.stringify(error));
-      }
+    const { error } = await signIn(email, password);
+    if (error) {
+      setError(error.message || 'Invalid email or password');
     }
     setLoading(false);
   }
 
-  if (signUpSuccess) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <div className="max-w-md w-full bg-white rounded-lg shadow-md p-8 text-center">
-          <div className="text-green-600 text-5xl mb-4">✓</div>
-          <h2 className="text-xl font-semibold text-gray-900 mb-2">Account Created</h2>
-          <p className="text-gray-600 mb-6">
-            Check your email to confirm your account, then sign in.
-          </p>
-          <button
-            onClick={() => { setIsSignUp(false); setSignUpSuccess(false); }}
-            className="w-full bg-indigo-600 text-white py-2 px-4 rounded-md hover:bg-indigo-700 transition-colors"
-          >
-            Back to Sign In
-          </button>
-        </div>
-      </div>
-    );
+  if (showForgotPassword) {
+    return <ForgotPasswordView onBack={() => setShowForgotPassword(false)} />;
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50">
+    <div className="min-h-screen flex items-center justify-center bg-blue-50">
       <div className="max-w-md w-full">
-        <div className="text-center mb-8">
-          <h1 className="text-2xl font-bold text-gray-900">LIMS Escalation Portal</h1>
-          <p className="text-gray-500 mt-2">Internal Escalation Tracking Tool</p>
+        <div className="flex flex-col items-center mb-8">
+          <BrandLogo size="lg" />
+          <p className="text-gray-500 mt-3 text-center">
+            <span className="font-semibold text-gray-700">Pulse</span> — Internal Escalation Tracking
+          </p>
         </div>
 
         <div className="bg-white rounded-lg shadow-md p-8">
-          <h2 className="text-lg font-semibold text-gray-900 mb-6">
-            {isSignUp ? 'Create Account' : 'Sign In'}
-          </h2>
+          <h2 className="text-lg font-semibold text-gray-900 mb-6">Sign In</h2>
 
           <form onSubmit={handleSubmit} className="space-y-4">
-            {isSignUp && (
-              <>
-                <div>
-                  <label htmlFor="fullName" className="block text-sm font-medium text-gray-700 mb-1">
-                    Full Name
-                  </label>
-                  <input
-                    id="fullName"
-                    type="text"
-                    value={fullName}
-                    onChange={e => setFullName(e.target.value)}
-                    required
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                    placeholder="Your full name"
-                  />
-                </div>
-                <div>
-                  <label htmlFor="role" className="block text-sm font-medium text-gray-700 mb-1">
-                    Role
-                  </label>
-                  <select
-                    id="role"
-                    value={role}
-                    onChange={e => setRole(e.target.value as UserRole)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                  >
-                    <option value={UserRole.CS_MANAGER}>CS Manager</option>
-                    <option value={UserRole.CS_LEAD}>CS Lead</option>
-                    <option value={UserRole.PRODUCT_LEAD}>Product Lead</option>
-                  </select>
-                </div>
-              </>
-            )}
-
             <div>
               <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-1">
                 Email
@@ -112,8 +50,8 @@ export function LoginPage() {
                 value={email}
                 onChange={e => setEmail(e.target.value)}
                 required
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                placeholder="you@company.com"
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                placeholder="you@creliohealth.com"
               />
             </div>
 
@@ -127,9 +65,8 @@ export function LoginPage() {
                 value={password}
                 onChange={e => setPassword(e.target.value)}
                 required
-                minLength={6}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                placeholder="Min 6 characters"
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                placeholder="Enter your password"
               />
             </div>
 
@@ -142,18 +79,121 @@ export function LoginPage() {
             <button
               type="submit"
               disabled={loading}
-              className="w-full bg-indigo-600 text-white py-2 px-4 rounded-md hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              className="w-full bg-green-600 text-white py-2 px-4 rounded-md hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors font-medium"
             >
-              {loading ? 'Please wait...' : isSignUp ? 'Create Account' : 'Sign In'}
+              {loading ? 'Signing in...' : 'Sign In'}
             </button>
           </form>
 
           <div className="mt-4 text-center">
             <button
-              onClick={() => { setIsSignUp(!isSignUp); setError(''); }}
-              className="text-sm text-indigo-600 hover:text-indigo-800"
+              onClick={() => setShowForgotPassword(true)}
+              className="text-sm text-blue-600 hover:text-blue-800"
             >
-              {isSignUp ? 'Already have an account? Sign in' : "Don't have an account? Sign up"}
+              Forgot your password?
+            </button>
+          </div>
+        </div>
+
+        <p className="text-xs text-gray-400 text-center mt-6">
+          Access is by invitation only. Contact your CS Lead or Product Lead for an account.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+// ===== Forgot Password Sub-View =====
+
+function ForgotPasswordView({ onBack }: { onBack: () => void }) {
+  const { resetPassword } = useAuth();
+  const [email, setEmail] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [sent, setSent] = useState(false);
+  const [error, setError] = useState('');
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setError('');
+    setLoading(true);
+
+    const { error } = await resetPassword(email);
+    if (error) {
+      setError(error.message || 'Something went wrong');
+    } else {
+      setSent(true);
+    }
+    setLoading(false);
+  }
+
+  if (sent) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-blue-50">
+        <div className="max-w-md w-full bg-white rounded-lg shadow-md p-8 text-center">
+          <div className="text-green-600 text-5xl mb-4">✉️</div>
+          <h2 className="text-xl font-semibold text-gray-900 mb-2">Check your email</h2>
+          <p className="text-gray-600 mb-6">
+            We've sent a password reset link to <span className="font-medium">{email}</span>.
+            Click the link in the email to set a new password.
+          </p>
+          <button
+            onClick={onBack}
+            className="w-full bg-green-600 text-white py-2 px-4 rounded-md hover:bg-green-700 transition-colors"
+          >
+            Back to Sign In
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-blue-50">
+      <div className="max-w-md w-full">
+        <div className="flex flex-col items-center mb-8">
+          <BrandLogo size="lg" />
+        </div>
+
+        <div className="bg-white rounded-lg shadow-md p-8">
+          <h2 className="text-lg font-semibold text-gray-900 mb-2">Reset Password</h2>
+          <p className="text-sm text-gray-500 mb-6">
+            Enter your email and we'll send you a link to reset your password.
+          </p>
+
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div>
+              <label htmlFor="resetEmail" className="block text-sm font-medium text-gray-700 mb-1">
+                Email
+              </label>
+              <input
+                id="resetEmail"
+                type="email"
+                value={email}
+                onChange={e => setEmail(e.target.value)}
+                required
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                placeholder="you@creliohealth.com"
+              />
+            </div>
+
+            {error && (
+              <div className="bg-red-50 text-red-700 px-3 py-2 rounded-md text-sm">
+                {error}
+              </div>
+            )}
+
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full bg-green-600 text-white py-2 px-4 rounded-md hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors font-medium"
+            >
+              {loading ? 'Sending...' : 'Send Reset Link'}
+            </button>
+          </form>
+
+          <div className="mt-4 text-center">
+            <button onClick={onBack} className="text-sm text-blue-600 hover:text-blue-800">
+              Back to Sign In
             </button>
           </div>
         </div>
