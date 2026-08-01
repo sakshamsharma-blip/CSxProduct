@@ -103,16 +103,29 @@ Deno.serve(async (req) => {
     }
 
     // Send password reset email so user can set their own password
-    await supabaseAdmin.auth.admin.generateLink({
-      type: 'recovery',
-      email,
+    const { error: resetError } = await supabaseAdmin.auth.resetPasswordForEmail(email, {
+      redirectTo: Deno.env.get('SITE_URL') || 'http://localhost:5173',
     })
+
+    if (resetError) {
+      // User created but email failed — return temp password as fallback
+      return new Response(
+        JSON.stringify({
+          success: true,
+          message: `User ${email} created but invite email failed to send. Share the temporary password with them.`,
+          temp_password: tempPassword,
+          email_sent: false,
+        }),
+        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      )
+    }
 
     return new Response(
       JSON.stringify({
         success: true,
-        message: `User ${email} created. They will receive a password reset email to set their own password.`,
-        temp_password: tempPassword, // In case email doesn't arrive, admin can share this
+        message: `User ${email} created. They will receive an email to set their password.`,
+        temp_password: tempPassword, // Fallback in case email doesn't arrive
+        email_sent: true,
       }),
       { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     )

@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { AuthProvider, useAuth } from './hooks/useAuth';
 import { LoginPage } from './pages/LoginPage';
+import { SetPasswordPage } from './pages/SetPasswordPage';
 import { Dashboard } from './pages/Dashboard';
 import { AnalyticsPage } from './pages/AnalyticsPage';
 import { UserManagement } from './pages/UserManagement';
@@ -10,7 +11,7 @@ import { UserRole } from './types';
 type Page = 'dashboard' | 'analytics' | 'users';
 
 function AppContent() {
-  const { session, appUser, loading } = useAuth();
+  const { session, appUser, loading, isRecoverySession, clearRecoveryState } = useAuth();
   const [currentPage, setCurrentPage] = useState<Page>('dashboard');
   const [showChangePassword, setShowChangePassword] = useState(false);
 
@@ -24,6 +25,11 @@ function AppContent() {
 
   if (!session) {
     return <LoginPage />;
+  }
+
+  // Force password set on recovery (forgot password or new invite)
+  if (isRecoverySession) {
+    return <SetPasswordPage onComplete={clearRecoveryState} />;
   }
 
   const canViewAnalytics = appUser?.role === UserRole.CS_LEAD || appUser?.role === UserRole.PRODUCT_LEAD;

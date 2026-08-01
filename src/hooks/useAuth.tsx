@@ -8,6 +8,8 @@ interface AuthContextType {
   user: User | null;
   appUser: AppUser | null;
   loading: boolean;
+  isRecoverySession: boolean;
+  clearRecoveryState: () => void;
   signIn: (email: string, password: string) => Promise<{ error: Error | null }>;
   signOut: () => Promise<void>;
   resetPassword: (email: string) => Promise<{ error: Error | null }>;
@@ -21,6 +23,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [appUser, setAppUser] = useState<AppUser | null>(null);
   const [loading, setLoading] = useState(true);
+  const [isRecoverySession, setIsRecoverySession] = useState(false);
 
   useEffect(() => {
     // Get initial session
@@ -36,7 +39,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     // Listen for auth changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (_event, session) => {
+      async (event, session) => {
+        // Detect password recovery flow
+        if (event === 'PASSWORD_RECOVERY') {
+          setIsRecoverySession(true);
+        }
+
         setSession(session);
         setUser(session?.user ?? null);
         if (session?.user) {
@@ -89,6 +97,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setLoading(false);
   }
 
+  function clearRecoveryState() {
+    setIsRecoverySession(false);
+  }
+
   async function signIn(email: string, password: string) {
     const { error } = await supabase.auth.signInWithPassword({ email, password });
     return { error: error as Error | null };
@@ -112,7 +124,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   return (
-    <AuthContext.Provider value={{ session, user, appUser, loading, signIn, signOut, resetPassword, changePassword }}>
+    <AuthContext.Provider value={{ session, user, appUser, loading, isRecoverySession, clearRecoveryState, signIn, signOut, resetPassword, changePassword }}>
       {children}
     </AuthContext.Provider>
   );
