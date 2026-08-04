@@ -120,7 +120,7 @@ export interface FilterConfig {
 // ===== Display Constants =====
 export const STATUS_LABELS: Record<TicketStatus, string> = {
   [TicketStatus.NEW_ESCALATION]: 'New Escalation',
-  [TicketStatus.RESOLVED_BY_CS]: 'Resolved by CS',
+  [TicketStatus.RESOLVED_BY_CS]: 'Resolved by CS Lead',
   [TicketStatus.PENDING_PROD_REVIEW]: 'Pending Product Review',
   [TicketStatus.IN_PRODUCT_SCOPE]: 'In Product Scope',
   [TicketStatus.ON_HOLD_UNTIL]: 'On Hold',
