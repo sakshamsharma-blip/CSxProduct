@@ -266,14 +266,28 @@ export function TicketTable({ tickets, searchQuery, onSearchChange, onSelectTick
 }
 
 function SLABadge({ ticket }: { ticket: Ticket }) {
+  const breachCount = ticket.sla_breach_count || 0;
+
   if (needsWeeklyUpdate(ticket)) {
-    return <span className="text-xs font-medium text-red-600">🔴 NEEDS UPDATE</span>;
+    return (
+      <span className="text-xs font-medium text-red-600">
+        🔴 NEEDS UPDATE {breachCount > 0 && <span className="ml-1 px-1.5 py-0.5 bg-red-100 rounded">{breachCount}x</span>}
+      </span>
+    );
   }
   if (isHoldExpired(ticket)) {
     return <span className="text-xs font-medium text-orange-600">⏰ EXPIRED</span>;
   }
   if (ticket.status === TicketStatus.IN_PRODUCT_SCOPE) {
-    return <span className="text-xs font-medium text-green-600">🟢 On Track</span>;
+    return (
+      <span className="text-xs font-medium text-green-600">
+        🟢 On Track {breachCount > 0 && <span className="ml-1 px-1.5 py-0.5 bg-red-100 text-red-600 rounded">{breachCount}x</span>}
+      </span>
+    );
+  }
+  // Show breach count on closed/resolved tickets too (historical)
+  if (breachCount > 0) {
+    return <span className="text-xs font-medium text-gray-500">SLA: {breachCount}x</span>;
   }
   return <span className="text-xs text-gray-300">—</span>;
 }

@@ -169,6 +169,7 @@ export async function postProgressUpdate(params: PostUpdateParams) {
 interface ChangePriorityParams {
   ticketId: string;
   currentStatus: TicketStatus;
+  sprintStatus: string | null;
   oldPriority: Priority;
   newPriority: Priority;
   userId: string;
@@ -176,10 +177,10 @@ interface ChangePriorityParams {
 }
 
 export async function changePriority(params: ChangePriorityParams) {
-  const { ticketId, currentStatus, oldPriority, newPriority, userId, userRole } = params;
+  const { ticketId, currentStatus, sprintStatus, oldPriority, newPriority, userId, userRole } = params;
 
-  if (!canChangePriority(userRole)) {
-    throw new Error('Only CS Lead and Product Lead can change priority.');
+  if (!canChangePriority(userRole, sprintStatus)) {
+    throw new Error('Cannot change priority on in-sprint tickets.');
   }
 
   if (oldPriority === newPriority) return;

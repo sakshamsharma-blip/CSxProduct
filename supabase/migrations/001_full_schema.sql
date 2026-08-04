@@ -58,6 +58,7 @@ CREATE TABLE tickets (
   last_product_activity_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   is_reopened BOOLEAN NOT NULL DEFAULT FALSE,
   reopen_count INTEGER NOT NULL DEFAULT 0,
+  sla_breach_count INTEGER NOT NULL DEFAULT 0,
   reporter_id UUID NOT NULL REFERENCES app_users(id),
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -170,7 +171,7 @@ CREATE POLICY "Leads can update tickets"
     EXISTS (
       SELECT 1 FROM app_users
       WHERE id = auth.uid()
-      AND role IN ('CS_LEAD', 'PRODUCT_LEAD')
+      AND role IN ('CS_LEAD', 'PRODUCT_LEAD', 'ADMIN')
     )
     OR
     -- Creator can update (for close/reopen)

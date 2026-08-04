@@ -6,12 +6,14 @@ const ROLE_LABELS: Record<UserRole, string> = {
   [UserRole.CS_MANAGER]: 'CS Manager',
   [UserRole.CS_LEAD]: 'CS Lead',
   [UserRole.PRODUCT_LEAD]: 'Product Lead',
+  [UserRole.ADMIN]: 'Admin',
 };
 
 const ROLE_BADGE_COLORS: Record<UserRole, string> = {
   [UserRole.CS_MANAGER]: 'bg-teal-100 text-teal-800',
   [UserRole.CS_LEAD]: 'bg-blue-100 text-blue-800',
   [UserRole.PRODUCT_LEAD]: 'bg-purple-100 text-purple-800',
+  [UserRole.ADMIN]: 'bg-red-100 text-red-800',
 };
 
 interface UserManagementProps {

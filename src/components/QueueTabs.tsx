@@ -15,7 +15,7 @@ interface TabDef {
   visibleTo: UserRole[];
 }
 
-const ALL_ROLES = [UserRole.CS_MANAGER, UserRole.CS_LEAD, UserRole.PRODUCT_LEAD];
+const ALL_ROLES = [UserRole.CS_MANAGER, UserRole.CS_LEAD, UserRole.PRODUCT_LEAD, UserRole.ADMIN];
 
 const TABS: TabDef[] = [
   {
@@ -28,13 +28,13 @@ const TABS: TabDef[] = [
     key: 'my_tickets',
     label: 'My Tickets',
     count: (t, userId) => t.filter(x => x.reporter_id === userId).length,
-    visibleTo: [UserRole.CS_LEAD], // CSM already sees only their own, so this tab is for CS Lead
+    visibleTo: [UserRole.CS_LEAD, UserRole.ADMIN],
   },
   {
     key: 'pending_cs',
     label: 'Pending CS Triage',
     count: (t) => t.filter(x => x.status === TicketStatus.NEW_ESCALATION).length,
-    visibleTo: [UserRole.CS_MANAGER, UserRole.CS_LEAD],
+    visibleTo: [UserRole.CS_MANAGER, UserRole.CS_LEAD, UserRole.ADMIN],
   },
   {
     key: 'pending_product',

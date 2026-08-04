@@ -59,7 +59,7 @@ export function TicketDrawer({ ticket, onClose, onUpdate }: TicketDrawerProps) {
 
   const availableTransitions = getAvailableTransitions(ticket.status as TicketStatus, userRole, userId, reporterId);
   const showPostUpdate = canPostUpdate(ticket.status as TicketStatus, userRole);
-  const showPriorityChange = canChangePriority(userRole);
+  const showPriorityChange = canChangePriority(userRole, ticket.sprint_status);
   const showSprintStatus = canChangeSprintStatus(ticket.status as TicketStatus, userRole);
   const showRevert = canRevertLastAction(userRole);
 
@@ -130,6 +130,7 @@ export function TicketDrawer({ ticket, onClose, onUpdate }: TicketDrawerProps) {
       await changePriority({
         ticketId: ticket.id,
         currentStatus: ticket.status as TicketStatus,
+        sprintStatus: ticket.sprint_status,
         oldPriority: ticket.priority as Priority,
         newPriority,
         userId: appUser.id,
@@ -226,7 +227,16 @@ export function TicketDrawer({ ticket, onClose, onUpdate }: TicketDrawerProps) {
             <div><span className="font-medium">Reporter:</span> {ticket.reporter?.full_name || '—'}</div>
             <div><span className="font-medium">Client ID:</span> {ticket.client_id || '—'}</div>
             <div><span className="font-medium">Type:</span> {ticket.sub_type.replace('_', ' ')}</div>
-            <div><span className="font-medium">Freshdesk:</span> {ticket.freshdesk_id || '—'}</div>
+            <div><span className="font-medium">Freshdesk/Jira:</span> {ticket.freshdesk_id ? (
+              <a
+                href={ticket.freshdesk_id}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-blue-600 hover:text-blue-800 hover:underline ml-1"
+              >
+                Open Ticket ↗
+              </a>
+            ) : '—'}</div>
             <div><span className="font-medium">Created:</span> {format(new Date(ticket.created_at), 'dd MMM yyyy, HH:mm')}</div>
             <div><span className="font-medium">Updated:</span> {formatDistanceToNow(new Date(ticket.updated_at), { addSuffix: true })}</div>
             {ticket.hold_until_date && (

@@ -24,7 +24,7 @@ Deno.serve(async (req) => {
       )
     }
 
-    // Validate role
+    // Validate role — ADMIN cannot be assigned via invite
     const validRoles = ['CS_MANAGER', 'CS_LEAD', 'PRODUCT_LEAD']
     if (!validRoles.includes(role)) {
       return new Response(

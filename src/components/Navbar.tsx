@@ -15,6 +15,7 @@ const ROLE_LABELS: Record<UserRole, string> = {
   [UserRole.CS_MANAGER]: 'CS Manager',
   [UserRole.CS_LEAD]: 'CS Lead',
   [UserRole.PRODUCT_LEAD]: 'Product Lead',
+  [UserRole.ADMIN]: 'Admin',
 };
 
 export function Navbar({ onNewRequest, onAnalytics, onChangePassword, onManageUsers, currentPage }: NavbarProps) {
@@ -22,9 +23,9 @@ export function Navbar({ onNewRequest, onAnalytics, onChangePassword, onManageUs
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
-  const canCreate = appUser?.role === UserRole.CS_MANAGER || appUser?.role === UserRole.CS_LEAD;
-  const canViewAnalytics = appUser?.role === UserRole.CS_LEAD || appUser?.role === UserRole.PRODUCT_LEAD;
-  const canManageUsers = appUser?.role === UserRole.CS_LEAD || appUser?.role === UserRole.PRODUCT_LEAD;
+  const canCreate = appUser?.role === UserRole.CS_MANAGER || appUser?.role === UserRole.CS_LEAD || appUser?.role === UserRole.ADMIN;
+  const canViewAnalytics = appUser?.role === UserRole.CS_LEAD || appUser?.role === UserRole.PRODUCT_LEAD || appUser?.role === UserRole.ADMIN;
+  const canManageUsers = appUser?.role === UserRole.CS_LEAD || appUser?.role === UserRole.PRODUCT_LEAD || appUser?.role === UserRole.ADMIN;
 
   // Close menu when clicking outside
   useEffect(() => {

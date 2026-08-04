@@ -56,9 +56,22 @@ export function useTickets() {
           .from('tickets')
           .select('*, reporter:app_users!reporter_id(*)')
           .order('created_at', { ascending: false });
-        if (refreshed) setTickets(refreshed as Ticket[]);
+        if (refreshed) {
+          await updateSlaBreachCounts(refreshed as Ticket[]);
+          const { data: final } = await supabase
+            .from('tickets')
+            .select('*, reporter:app_users!reporter_id(*)')
+            .order('created_at', { ascending: false });
+          setTickets((final || refreshed) as Ticket[]);
+        }
       } else {
-        setTickets(ticketList);
+        await updateSlaBreachCounts(ticketList);
+        // Re-fetch after SLA updates
+        const { data: refreshed } = await supabase
+          .from('tickets')
+          .select('*, reporter:app_users!reporter_id(*)')
+          .order('created_at', { ascending: false });
+        setTickets((refreshed || ticketList) as Ticket[]);
       }
     }
     setLoading(false);
@@ -69,6 +82,35 @@ export function useTickets() {
   }, [fetchTickets]);
 
   return { tickets, loading, error, refetch: fetchTickets, holdExpiredCount };
+}
+
+// Calculates and persists SLA breach counts.
+// Each full 7-day period without a product update counts as one breach.
+// This only increments — it never decreases, even after an update is posted.
+async function updateSlaBreachCounts(tickets: Ticket[]) {
+  const now = new Date();
+  const updates: { id: string; count: number }[] = [];
+
+  for (const t of tickets) {
+    if (t.status !== TicketStatus.IN_PRODUCT_SCOPE) continue;
+    const lastActivity = new Date(t.last_product_activity_at);
+    const daysSince = Math.floor((now.getTime() - lastActivity.getTime()) / (1000 * 60 * 60 * 24));
+    if (daysSince < 7) continue;
+
+    // Each 7-day window = 1 breach
+    const expectedBreaches = Math.floor(daysSince / 7);
+    if (expectedBreaches > (t.sla_breach_count || 0)) {
+      updates.push({ id: t.id, count: expectedBreaches });
+    }
+  }
+
+  // Batch update
+  for (const u of updates) {
+    await supabase
+      .from('tickets')
+      .update({ sla_breach_count: u.count })
+      .eq('id', u.id);
+  }
 }
 
 export function useTicketLogs(ticketId: string | null) {
@@ -105,6 +147,10 @@ export function useTicketLogs(ticketId: string | null) {
 // ===== ROLE-BASED VISIBILITY =====
 
 export function getVisibleTickets(tickets: Ticket[], role: UserRole, userId: string): Ticket[] {
+  if (role === UserRole.ADMIN) {
+    // ADMIN sees everything
+    return tickets;
+  }
   if (role === UserRole.CS_MANAGER) {
     // CSM sees ONLY their own tickets
     return tickets.filter(t => t.reporter_id === userId);

@@ -3,6 +3,15 @@ export enum UserRole {
   CS_MANAGER = 'CS_MANAGER',
   CS_LEAD = 'CS_LEAD',
   PRODUCT_LEAD = 'PRODUCT_LEAD',
+  ADMIN = 'ADMIN',
+}
+
+// The single hardcoded admin email. No other account can be assigned ADMIN.
+export const ADMIN_EMAIL = 'saksham.sharma@livehealth.in';
+
+// Check if a role has admin-level access
+export function isAdmin(role: UserRole, email?: string): boolean {
+  return role === UserRole.ADMIN && email === ADMIN_EMAIL;
 }
 
 // ===== Ticket Status States =====
@@ -64,6 +73,7 @@ export interface Ticket {
   last_product_activity_at: string;
   is_reopened: boolean;
   reopen_count: number;
+  sla_breach_count: number;
   reporter_id: string;
   reporter?: AppUser;
   created_at: string;
