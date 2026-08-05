@@ -115,6 +115,7 @@ export interface FilterConfig {
   priority: Priority | 'ALL';
   subType: TicketSubType | 'ALL';
   status: TicketStatus | 'ALL' | 'REOPENED';
+  createdBy: string | 'ALL'; // reporter_id or 'ALL'
 }
 
 // ===== Display Constants =====

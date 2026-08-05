@@ -19,7 +19,15 @@ interface TicketTableProps {
 
 export function TicketTable({ tickets, searchQuery, onSearchChange, onSelectTicket, selectedTicketId, attentionFlags = [] }: TicketTableProps) {
   const [sort, setSort] = useState<SortConfig>({ field: 'created_at', direction: 'desc' });
-  const [filters, setFilters] = useState<FilterConfig>({ priority: 'ALL', subType: 'ALL', status: 'ALL' });
+  const [filters, setFilters] = useState<FilterConfig>({ priority: 'ALL', subType: 'ALL', status: 'ALL', createdBy: 'ALL' });
+
+  // Build unique reporters list for the "Created By" filter
+  const uniqueReporters = tickets.reduce<{ id: string; name: string }[]>((acc, t) => {
+    if (t.reporter && !acc.some(r => r.id === t.reporter_id)) {
+      acc.push({ id: t.reporter_id, name: t.reporter.full_name });
+    }
+    return acc;
+  }, []).sort((a, b) => a.name.localeCompare(b.name));
 
   // Apply search
   const searched = tickets.filter(t => {
@@ -110,10 +118,22 @@ export function TicketTable({ tickets, searchQuery, onSearchChange, onSelectTick
             <option value={TicketStatus.CLOSED}>Closed</option>
           </select>
 
+          {/* Created By Filter */}
+          <select
+            value={filters.createdBy}
+            onChange={e => setFilters(f => ({ ...f, createdBy: e.target.value }))}
+            className="px-2 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+          >
+            <option value="ALL">All Creators</option>
+            {uniqueReporters.map(r => (
+              <option key={r.id} value={r.id}>{r.name}</option>
+            ))}
+          </select>
+
           {/* Reset Filters */}
-          {(filters.priority !== 'ALL' || filters.subType !== 'ALL' || filters.status !== 'ALL') && (
+          {(filters.priority !== 'ALL' || filters.subType !== 'ALL' || filters.status !== 'ALL' || filters.createdBy !== 'ALL') && (
             <button
-              onClick={() => setFilters({ priority: 'ALL', subType: 'ALL', status: 'ALL' })}
+              onClick={() => setFilters({ priority: 'ALL', subType: 'ALL', status: 'ALL', createdBy: 'ALL' })}
               className="px-2 py-2 text-xs text-blue-600 hover:text-blue-800 font-medium"
             >
               Clear filters

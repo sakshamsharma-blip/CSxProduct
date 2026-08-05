@@ -250,6 +250,7 @@ export function applyFilters(tickets: Ticket[], filters: FilterConfig): Ticket[]
     } else if (filters.status !== 'ALL' && t.status !== filters.status) {
       return false;
     }
+    if (filters.createdBy !== 'ALL' && t.reporter_id !== filters.createdBy) return false;
     return true;
   });
 }
