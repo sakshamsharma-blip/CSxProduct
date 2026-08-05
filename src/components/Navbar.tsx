@@ -45,7 +45,7 @@ export function Navbar({ onNewRequest, onAnalytics, onChangePassword, onManageUs
       <div className="flex items-center justify-between max-w-full">
         {/* Left: Branding */}
         <div className="flex items-center">
-          <BrandLogo size="md" productName="Pulse" />
+          <BrandLogo size="md" productName="Flow" />
         </div>
 
         {/* Right: Actions + User Info */}

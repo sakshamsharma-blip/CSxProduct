@@ -32,7 +32,7 @@ export function LoginPage() {
         <div className="flex flex-col items-center mb-8">
           <BrandLogo size="lg" />
           <p className="text-gray-500 mt-3 text-center">
-            <span className="font-semibold text-gray-700">Pulse</span> — Internal Escalation Tracking
+            <span className="font-semibold text-gray-700">Flow</span> — Internal Escalation Tracking
           </p>
         </div>
 
