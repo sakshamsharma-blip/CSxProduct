@@ -37,6 +37,7 @@ CREATE TABLE app_users (
   id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
   full_name TEXT NOT NULL,
   email TEXT NOT NULL UNIQUE,
+  secondary_email TEXT UNIQUE,
   role user_role NOT NULL DEFAULT 'CS_MANAGER',
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );

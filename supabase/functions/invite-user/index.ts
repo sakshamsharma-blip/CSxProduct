@@ -24,6 +24,16 @@ Deno.serve(async (req) => {
       )
     }
 
+    // Derive the secondary email (swap domains)
+    const username = email.split('@')[0]
+    const domain = email.split('@')[1]
+    let secondaryEmail: string | null = null
+    if (domain === 'creliohealth.com') {
+      secondaryEmail = `${username}@livehealth.in`
+    } else if (domain === 'livehealth.in') {
+      secondaryEmail = `${username}@creliohealth.com`
+    }
+
     // Validate role — ADMIN cannot be assigned via invite
     const validRoles = ['CS_MANAGER', 'CS_LEAD', 'PRODUCT_LEAD']
     if (!validRoles.includes(role)) {
@@ -98,8 +108,27 @@ Deno.serve(async (req) => {
           id: newUser.user.id,
           full_name,
           email,
+          secondary_email: secondaryEmail,
           role,
         }, { onConflict: 'id' })
+    }
+
+    // Create secondary auth account (other domain) with same temp password
+    if (secondaryEmail) {
+      const { error: secondaryError } = await supabaseAdmin.auth.admin.createUser({
+        email: secondaryEmail,
+        password: tempPassword,
+        email_confirm: true,
+        user_metadata: { full_name, role, is_secondary: true, primary_email: email },
+      })
+      if (secondaryError) {
+        console.warn(`Failed to create secondary account ${secondaryEmail}:`, secondaryError.message)
+      }
+
+      // Send recovery email to secondary too
+      await supabaseAdmin.auth.resetPasswordForEmail(secondaryEmail, {
+        redirectTo: Deno.env.get('SITE_URL') || 'http://localhost:5173',
+      })
     }
 
     // Send password reset email so user can set their own password

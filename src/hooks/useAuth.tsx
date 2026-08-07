@@ -60,39 +60,56 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   async function fetchAppUser(userId: string) {
+    // First try: direct match by auth user ID (primary email login)
     const { data, error } = await supabase
       .from('app_users')
       .select('*')
       .eq('id', userId)
       .single();
 
-    if (error || !data) {
-      // Fallback: try to create profile from auth user metadata
-      const { data: { user } } = await supabase.auth.getUser();
-      if (user) {
-        const meta = user.user_metadata;
-        const { data: newProfile, error: insertError } = await supabase
-          .from('app_users')
-          .upsert({
-            id: user.id,
-            full_name: meta?.full_name || user.email?.split('@')[0] || 'User',
-            email: user.email || '',
-            role: meta?.role || 'CS_MANAGER',
-          }, { onConflict: 'id' })
-          .select('*')
-          .single();
+    if (!error && data) {
+      setAppUser(data as AppUser);
+      setLoading(false);
+      return;
+    }
 
-        if (!insertError && newProfile) {
-          setAppUser(newProfile as AppUser);
-        } else {
-          console.error('Error creating fallback profile:', insertError);
-          setAppUser(null);
-        }
+    // Second try: this might be a secondary email login.
+    // Look up by email or secondary_email matching the auth user's email.
+    const { data: { user } } = await supabase.auth.getUser();
+    if (user?.email) {
+      const { data: profileByEmail } = await supabase
+        .from('app_users')
+        .select('*')
+        .or(`email.eq.${user.email},secondary_email.eq.${user.email}`)
+        .single();
+
+      if (profileByEmail) {
+        setAppUser(profileByEmail as AppUser);
+        setLoading(false);
+        return;
+      }
+
+      // Last resort: create a new profile from auth metadata
+      const meta = user.user_metadata;
+      const { data: newProfile, error: insertError } = await supabase
+        .from('app_users')
+        .upsert({
+          id: user.id,
+          full_name: meta?.full_name || user.email?.split('@')[0] || 'User',
+          email: user.email || '',
+          role: meta?.role || 'CS_MANAGER',
+        }, { onConflict: 'id' })
+        .select('*')
+        .single();
+
+      if (!insertError && newProfile) {
+        setAppUser(newProfile as AppUser);
       } else {
+        console.error('Error creating fallback profile:', insertError);
         setAppUser(null);
       }
     } else {
-      setAppUser(data as AppUser);
+      setAppUser(null);
     }
     setLoading(false);
   }

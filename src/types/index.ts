@@ -53,6 +53,7 @@ export interface AppUser {
   id: string;
   full_name: string;
   email: string;
+  secondary_email: string | null;
   role: UserRole;
   created_at: string;
 }
