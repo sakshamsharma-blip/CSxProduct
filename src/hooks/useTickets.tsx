@@ -348,7 +348,7 @@ export function ticketNeedsAttention(ticket: Ticket, attentionFlags: AttentionFl
 
 // ===== EXCEL EXPORT =====
 
-export function exportTicketsToExcel(tickets: Ticket[]) {
+export function exportTicketsToExcel(tickets: Ticket[], allUsers?: { id: string; full_name: string; role: string }[]) {
   const rows = tickets.map(t => ({
     'ID': t.custom_id,
     'Lab/Client': t.lab_name,
@@ -359,6 +359,7 @@ export function exportTicketsToExcel(tickets: Ticket[]) {
     'Status': t.status,
     'Sprint Status': t.sprint_status || '',
     'Reporter': t.reporter?.full_name || '',
+    'Assignee': t.assignee_id ? (allUsers?.find(u => u.id === t.assignee_id)?.full_name || '') : '',
     'JIRA': t.freshdesk_id || '',
     'JIRA Status': t.jira_status || '',
     'SLA Breaches': t.sla_breach_count || 0,
@@ -370,9 +371,9 @@ export function exportTicketsToExcel(tickets: Ticket[]) {
   return rows;
 }
 
-export async function downloadExcel(tickets: Ticket[], filename: string) {
+export async function downloadExcel(tickets: Ticket[], filename: string, allUsers?: { id: string; full_name: string; role: string }[]) {
   const XLSX = await import('xlsx');
-  const data = exportTicketsToExcel(tickets);
+  const data = exportTicketsToExcel(tickets, allUsers);
   const ws = XLSX.utils.json_to_sheet(data);
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Tickets');

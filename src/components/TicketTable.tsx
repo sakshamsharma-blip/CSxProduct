@@ -301,13 +301,13 @@ export function TicketTable({ tickets, searchQuery, onSearchChange, onSelectTick
       </div>
 
       {/* Export Modal */}
-      {showExportModal && <ExportModal tickets={sorted} onClose={() => setShowExportModal(false)} />}
+      {showExportModal && <ExportModal tickets={sorted} allUsers={allUsers} onClose={() => setShowExportModal(false)} />}
     </div>
   );
 }
 
 // ===== Export Modal with date picker =====
-function ExportModal({ tickets, onClose }: { tickets: Ticket[]; onClose: () => void }) {
+function ExportModal({ tickets, allUsers, onClose }: { tickets: Ticket[]; allUsers: { id: string; full_name: string; role: string }[]; onClose: () => void }) {
   const [period, setPeriod] = useState<'all' | 'week' | 'month' | 'year' | 'custom'>('all');
   const [customStart, setCustomStart] = useState('');
   const [customEnd, setCustomEnd] = useState('');
@@ -332,7 +332,7 @@ function ExportModal({ tickets, onClose }: { tickets: Ticket[]; onClose: () => v
 
   function handleExport() {
     const data = getFilteredByDate();
-    downloadExcel(data, `creliohealth-flow-export-${new Date().toISOString().split('T')[0]}.xlsx`);
+    downloadExcel(data, `creliohealth-flow-export-${new Date().toISOString().split('T')[0]}.xlsx`, allUsers);
     onClose();
   }
 
