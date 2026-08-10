@@ -498,6 +498,11 @@ export async function revertLastAction(params: RevertParams) {
     throw new Error('No status change found to revert.');
   }
 
+  // Only the person who made the action can revert it (admin bypasses)
+  if (userRole !== 'ADMIN' && lastStatusChange.author_id !== userId) {
+    throw new Error('You can only revert your own actions.');
+  }
+
   const revertToStatus = lastStatusChange.previous_status as TicketStatus;
   const revertFromStatus = lastStatusChange.new_status as TicketStatus;
 
