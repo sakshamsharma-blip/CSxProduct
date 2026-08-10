@@ -24,6 +24,7 @@ build/
 .DS_Store
 Thumbs.db
 
-# Logs
+# Supabase
+supabase/.temp/
 *.log
 npm-debug.log*
