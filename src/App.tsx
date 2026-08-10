@@ -32,7 +32,7 @@ function AppContent() {
     return <SetPasswordPage onComplete={clearRecoveryState} />;
   }
 
-  const canViewAnalytics = appUser?.role === UserRole.CS_LEAD || appUser?.role === UserRole.PRODUCT_LEAD || appUser?.role === UserRole.ADMIN;
+  const canViewAnalytics = appUser?.role === UserRole.CS_LEAD || appUser?.role === UserRole.PRODUCT_LEAD || appUser?.role === UserRole.PRODUCT_TEAM || appUser?.role === UserRole.ADMIN;
   const canManageUsers = appUser?.role === UserRole.CS_LEAD || appUser?.role === UserRole.PRODUCT_LEAD || appUser?.role === UserRole.ADMIN;
 
   if (currentPage === 'analytics' && canViewAnalytics) {

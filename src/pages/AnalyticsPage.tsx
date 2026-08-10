@@ -114,10 +114,11 @@ export function AnalyticsPage({ onBack }: { onBack: () => void }) {
 
       <div className="p-6 space-y-6 max-w-[1400px] mx-auto">
         {/* Stat Cards */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
           <StatCard label="Total Raised" value={stats.totalRaised} />
           <StatCard label="Currently Open" value={stats.currentlyOpen} color="text-blue-600" />
-          <StatCard label="Closed" value={stats.closed} color="text-green-600" />
+          <StatCard label="Currently Resolved" value={stats.currentlyResolved} color="text-green-600" />
+          <StatCard label="Closed" value={stats.closed} color="text-gray-600" />
           <StatCard label="Reopen Rate" value={`${stats.reopenRate}%`} color={stats.reopenRate > 20 ? 'text-red-600' : 'text-gray-700'} />
           <StatCard label="Avg Resolution TAT" value={formatTAT(stats.avgResolutionTAT)} sublabel="In Scope → Resolved" />
           <StatCard label="Avg Closure TAT" value={formatTAT(stats.avgClosureTAT)} sublabel="Resolved → Closed" />
@@ -225,7 +226,7 @@ export function AnalyticsPage({ onBack }: { onBack: () => void }) {
                   <div className="flex items-center gap-3">
                     <span className="text-xs text-gray-500">{client.open} open</span>
                     <span className="text-xs text-green-600">{client.closed} closed</span>
-                    <span className="font-semibold text-gray-700">{client.total}</span>
+                    <span className="text-xs font-semibold text-gray-700">{client.total} total</span>
                   </div>
                 </button>
               ))}

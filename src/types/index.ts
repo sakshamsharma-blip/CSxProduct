@@ -3,6 +3,7 @@ export enum UserRole {
   CS_MANAGER = 'CS_MANAGER',
   CS_LEAD = 'CS_LEAD',
   PRODUCT_LEAD = 'PRODUCT_LEAD',
+  PRODUCT_TEAM = 'PRODUCT_TEAM',
   ADMIN = 'ADMIN',
 }
 
@@ -14,15 +15,22 @@ export function isAdmin(role: UserRole, email?: string): boolean {
   return role === UserRole.ADMIN && email === ADMIN_EMAIL;
 }
 
+// Role groups for permission checks
+export const LEAD_ROLES = [UserRole.CS_LEAD, UserRole.PRODUCT_LEAD, UserRole.PRODUCT_TEAM, UserRole.ADMIN];
+export const PRODUCT_ROLES = [UserRole.PRODUCT_LEAD, UserRole.PRODUCT_TEAM, UserRole.ADMIN];
+export const ALL_ACTION_ROLES = [UserRole.CS_LEAD, UserRole.PRODUCT_LEAD, UserRole.PRODUCT_TEAM, UserRole.ADMIN];
+
 // ===== Ticket Status States =====
 export enum TicketStatus {
   NEW_ESCALATION = 'NEW_ESCALATION',
   RESOLVED_BY_CS = 'RESOLVED_BY_CS',
   PENDING_PROD_REVIEW = 'PENDING_PROD_REVIEW',
   IN_PRODUCT_SCOPE = 'IN_PRODUCT_SCOPE',
+  IN_PROGRESS = 'IN_PROGRESS',
   ON_HOLD_UNTIL = 'ON_HOLD_UNTIL',
   RESOLVED = 'RESOLVED',
   CLOSED = 'CLOSED',
+  RETURNED_TO_CS = 'RETURNED_TO_CS',
 }
 
 // ===== Ticket Sub-Types =====
@@ -41,7 +49,7 @@ export enum Priority {
   CRITICAL = 'CRITICAL',
 }
 
-// ===== Sprint Status (only for IN_PRODUCT_SCOPE tickets) =====
+// ===== Sprint Status (editable from PENDING_PROD_REVIEW onwards) =====
 export enum SprintStatus {
   IN_SPRINT = 'IN_SPRINT',
   NEXT_SPRINT = 'NEXT_SPRINT',
@@ -69,7 +77,7 @@ export interface Ticket {
   priority: Priority;
   status: TicketStatus;
   sprint_status: SprintStatus | null;
-  freshdesk_id: string | null;
+  freshdesk_id: string | null; // JIRA ticket URL
   hold_until_date: string | null;
   last_product_activity_at: string;
   is_reopened: boolean;
@@ -77,6 +85,11 @@ export interface Ticket {
   sla_breach_count: number;
   reporter_id: string;
   reporter?: AppUser;
+  assignee_id: string | null;
+  assignee?: AppUser;
+  latest_comment: string | null;
+  jira_status: string | null;
+  last_jira_status_change_at: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -96,11 +109,12 @@ export interface UpdateLog {
 // ===== UI Helpers =====
 export type QueueTab =
   | 'all'
-  | 'my_tickets'
   | 'pending_cs'
   | 'pending_product'
   | 'in_scope'
+  | 'in_progress'
   | 'on_hold'
+  | 'returned_to_cs'
   | 'resolved'
   | 'closed';
 
@@ -116,7 +130,8 @@ export interface FilterConfig {
   priority: Priority | 'ALL';
   subType: TicketSubType | 'ALL';
   status: TicketStatus | 'ALL' | 'REOPENED';
-  createdBy: string | 'ALL'; // reporter_id or 'ALL'
+  createdBy: string | 'ALL';
+  assignee: string | 'ALL';
 }
 
 // ===== Display Constants =====
@@ -125,12 +140,13 @@ export const STATUS_LABELS: Record<TicketStatus, string> = {
   [TicketStatus.RESOLVED_BY_CS]: 'Resolved by CS Lead',
   [TicketStatus.PENDING_PROD_REVIEW]: 'Pending Product Review',
   [TicketStatus.IN_PRODUCT_SCOPE]: 'In Product Scope',
+  [TicketStatus.IN_PROGRESS]: 'In Progress',
   [TicketStatus.ON_HOLD_UNTIL]: 'On Hold',
   [TicketStatus.RESOLVED]: 'Resolved',
   [TicketStatus.CLOSED]: 'Closed',
+  [TicketStatus.RETURNED_TO_CS]: 'Returned to CS Lead',
 };
 
-// Priority stays semantic (red → orange → blue → gray) so severity reads at a glance.
 export const PRIORITY_COLORS: Record<Priority, string> = {
   [Priority.LOW]: 'bg-gray-100 text-gray-700',
   [Priority.MEDIUM]: 'bg-blue-100 text-blue-700',
@@ -138,16 +154,16 @@ export const PRIORITY_COLORS: Record<Priority, string> = {
   [Priority.CRITICAL]: 'bg-red-100 text-red-700',
 };
 
-// Mapped to the pill convention used across the CrelioHealth LIMS UI:
-// amber = waiting on someone, blue = in progress, green = done, gray = parked/closed.
 export const STATUS_COLORS: Record<TicketStatus, string> = {
   [TicketStatus.NEW_ESCALATION]: 'bg-yellow-100 text-yellow-800',
   [TicketStatus.RESOLVED_BY_CS]: 'bg-emerald-100 text-emerald-800',
   [TicketStatus.PENDING_PROD_REVIEW]: 'bg-purple-100 text-purple-800',
   [TicketStatus.IN_PRODUCT_SCOPE]: 'bg-blue-100 text-blue-800',
+  [TicketStatus.IN_PROGRESS]: 'bg-indigo-100 text-indigo-800',
   [TicketStatus.ON_HOLD_UNTIL]: 'bg-orange-100 text-orange-800',
   [TicketStatus.RESOLVED]: 'bg-green-100 text-green-800',
   [TicketStatus.CLOSED]: 'bg-gray-200 text-gray-700',
+  [TicketStatus.RETURNED_TO_CS]: 'bg-amber-100 text-amber-800',
 };
 
 export const SPRINT_STATUS_LABELS: Record<SprintStatus, string> = {
@@ -169,10 +185,23 @@ export const PRIORITY_ORDER: Record<Priority, number> = {
   [Priority.LOW]: 3,
 };
 
-// ===== Status Display Helpers =====
-// A reopened ticket sits in NEW_ESCALATION for workflow purposes, but we surface it
-// as "Reopened" so CS Lead / Product Lead can spot it and prioritise accordingly.
+export const ROLE_LABELS: Record<UserRole, string> = {
+  [UserRole.CS_MANAGER]: 'CS Manager',
+  [UserRole.CS_LEAD]: 'CS Lead',
+  [UserRole.PRODUCT_LEAD]: 'Product Lead',
+  [UserRole.PRODUCT_TEAM]: 'Product Team',
+  [UserRole.ADMIN]: 'Admin',
+};
 
+export const ROLE_BADGE_COLORS: Record<UserRole, string> = {
+  [UserRole.CS_MANAGER]: 'bg-teal-100 text-teal-800',
+  [UserRole.CS_LEAD]: 'bg-blue-100 text-blue-800',
+  [UserRole.PRODUCT_LEAD]: 'bg-purple-100 text-purple-800',
+  [UserRole.PRODUCT_TEAM]: 'bg-violet-100 text-violet-800',
+  [UserRole.ADMIN]: 'bg-red-100 text-red-800',
+};
+
+// ===== Status Display Helpers =====
 export const REOPENED_LABEL = 'Reopened';
 export const REOPENED_COLOR = 'bg-red-100 text-red-700';
 

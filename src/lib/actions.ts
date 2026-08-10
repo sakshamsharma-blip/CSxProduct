@@ -1,6 +1,6 @@
 import { supabase } from './supabase';
 import { TicketStatus, TicketSubType, Priority, SprintStatus, UserRole } from '../types';
-import { canTransition, canPostUpdate, canChangePriority, canChangeSprintStatus, canRevertLastAction, isReopenTransition } from './stateMachine';
+import { canTransition, canPostUpdate, canChangePriority, canChangeSprintStatus, canRevertLastAction, canChangeAssignee, isReopenTransition } from './stateMachine';
 
 // ===== CREATE TICKET =====
 
@@ -53,7 +53,6 @@ interface TransitionParams {
 export async function transitionTicket(params: TransitionParams) {
   const { ticketId, currentStatus, newStatus, userId, userRole, reporterId, comment, holdUntilDate } = params;
 
-  // Validate transition
   if (!canTransition(currentStatus, newStatus, userRole, userId, reporterId)) {
     throw new Error(`Transition from ${currentStatus} to ${newStatus} is not allowed.`);
   }
@@ -62,12 +61,10 @@ export async function transitionTicket(params: TransitionParams) {
     throw new Error('Comment is required for status transitions.');
   }
 
-  // Build ticket update
   const ticketUpdate: Record<string, unknown> = {
     status: newStatus,
   };
 
-  // Handle hold date
   if (newStatus === TicketStatus.ON_HOLD_UNTIL) {
     if (!holdUntilDate) throw new Error('Hold until date is required.');
     ticketUpdate.hold_until_date = holdUntilDate;
@@ -75,12 +72,13 @@ export async function transitionTicket(params: TransitionParams) {
     ticketUpdate.hold_until_date = null;
   }
 
-  // If product lead is taking action, update the product activity timestamp
-  if (userRole === UserRole.PRODUCT_LEAD) {
+  // Update product activity timestamp for product-side actions
+  const productStatuses = [TicketStatus.IN_PRODUCT_SCOPE, TicketStatus.IN_PROGRESS, TicketStatus.RESOLVED, TicketStatus.ON_HOLD_UNTIL];
+  if (productStatuses.includes(newStatus)) {
     ticketUpdate.last_product_activity_at = new Date().toISOString();
   }
 
-  // Handle reopen — read current count and increment
+  // Handle reopen
   if (isReopenTransition(currentStatus, newStatus)) {
     const { data: current } = await supabase
       .from('tickets')
@@ -92,12 +90,15 @@ export async function transitionTicket(params: TransitionParams) {
     ticketUpdate.reopen_count = (current?.reopen_count ?? 0) + 1;
   }
 
-  // Clear sprint status if leaving IN_PRODUCT_SCOPE
-  if (currentStatus === TicketStatus.IN_PRODUCT_SCOPE && newStatus !== TicketStatus.IN_PRODUCT_SCOPE) {
+  // Clear sprint status if leaving product pipeline to non-product status
+  const nonProductStatuses = [TicketStatus.RETURNED_TO_CS, TicketStatus.CLOSED, TicketStatus.NEW_ESCALATION];
+  if (nonProductStatuses.includes(newStatus)) {
     ticketUpdate.sprint_status = null;
   }
 
-  // Update ticket
+  // Update latest_comment
+  ticketUpdate.latest_comment = comment.trim();
+
   const { error: ticketError } = await supabase
     .from('tickets')
     .update(ticketUpdate)
@@ -105,7 +106,6 @@ export async function transitionTicket(params: TransitionParams) {
 
   if (ticketError) throw ticketError;
 
-  // Create audit log entry
   const { error: logError } = await supabase
     .from('update_logs')
     .insert([{
@@ -134,22 +134,62 @@ export async function postProgressUpdate(params: PostUpdateParams) {
   const { ticketId, currentStatus, userId, userRole, comment } = params;
 
   if (!canPostUpdate(currentStatus, userRole)) {
-    throw new Error('Progress updates can only be posted by Product Lead on In Product Scope tickets.');
+    throw new Error('Progress updates can only be posted on In Product Scope or In Progress tickets by authorized roles.');
   }
 
   if (!comment.trim()) {
     throw new Error('Comment is required for progress updates.');
   }
 
-  // Update last_product_activity_at (resets SLA timer)
   const { error: ticketError } = await supabase
     .from('tickets')
-    .update({ last_product_activity_at: new Date().toISOString() })
+    .update({
+      last_product_activity_at: new Date().toISOString(),
+      latest_comment: comment.trim(),
+    })
     .eq('id', ticketId);
 
   if (ticketError) throw ticketError;
 
-  // Create audit log (same status → same status = progress update)
+  const { error: logError } = await supabase
+    .from('update_logs')
+    .insert([{
+      ticket_id: ticketId,
+      author_id: userId,
+      comment: comment.trim(),
+      previous_status: currentStatus,
+      new_status: currentStatus,
+      hold_target_date: null,
+    }]);
+
+  if (logError) throw logError;
+}
+
+// ===== ADD STANDALONE COMMENT (anyone, anytime, no action required) =====
+
+interface AddCommentParams {
+  ticketId: string;
+  currentStatus: TicketStatus;
+  userId: string;
+  comment: string;
+}
+
+export async function addComment(params: AddCommentParams) {
+  const { ticketId, currentStatus, userId, comment } = params;
+
+  if (!comment.trim()) {
+    throw new Error('Comment cannot be empty.');
+  }
+
+  // Update latest_comment on ticket
+  const { error: ticketError } = await supabase
+    .from('tickets')
+    .update({ latest_comment: comment.trim() })
+    .eq('id', ticketId);
+
+  if (ticketError) throw ticketError;
+
+  // Add to audit trail (same status → same status = comment only)
   const { error: logError } = await supabase
     .from('update_logs')
     .insert([{
@@ -185,7 +225,6 @@ export async function changePriority(params: ChangePriorityParams) {
 
   if (oldPriority === newPriority) return;
 
-  // Update priority on ticket
   const { error: ticketError } = await supabase
     .from('tickets')
     .update({ priority: newPriority })
@@ -193,7 +232,6 @@ export async function changePriority(params: ChangePriorityParams) {
 
   if (ticketError) throw ticketError;
 
-  // Log audit entry
   const { error: logError } = await supabase
     .from('update_logs')
     .insert([{
@@ -201,7 +239,7 @@ export async function changePriority(params: ChangePriorityParams) {
       author_id: userId,
       comment: `Priority changed from ${oldPriority} to ${newPriority}`,
       previous_status: currentStatus,
-      new_status: currentStatus, // No status change
+      new_status: currentStatus,
       hold_target_date: null,
     }]);
 
@@ -222,10 +260,9 @@ export async function changeSprintStatus(params: ChangeSprintStatusParams) {
   const { ticketId, currentStatus, newSprintStatus, userId, userRole } = params;
 
   if (!canChangeSprintStatus(currentStatus, userRole)) {
-    throw new Error('Sprint status can only be changed by Product Lead on In Product Scope tickets.');
+    throw new Error('Sprint status can only be changed on eligible tickets by authorized roles.');
   }
 
-  // Update sprint status on ticket
   const { error: ticketError } = await supabase
     .from('tickets')
     .update({ sprint_status: newSprintStatus })
@@ -233,7 +270,6 @@ export async function changeSprintStatus(params: ChangeSprintStatusParams) {
 
   if (ticketError) throw ticketError;
 
-  // Log audit entry
   const { error: logError } = await supabase
     .from('update_logs')
     .insert([{
@@ -241,11 +277,195 @@ export async function changeSprintStatus(params: ChangeSprintStatusParams) {
       author_id: userId,
       comment: `Sprint status set to ${newSprintStatus.replace('_', ' ')}`,
       previous_status: currentStatus,
-      new_status: currentStatus, // No status change
+      new_status: currentStatus,
       hold_target_date: null,
     }]);
 
   if (logError) throw logError;
+}
+
+// ===== CHANGE ASSIGNEE =====
+
+interface ChangeAssigneeParams {
+  ticketId: string;
+  currentStatus: TicketStatus;
+  newAssigneeId: string;
+  newAssigneeName: string;
+  userId: string;
+  userRole: UserRole;
+}
+
+export async function changeAssignee(params: ChangeAssigneeParams) {
+  const { ticketId, currentStatus, newAssigneeId, newAssigneeName, userId, userRole } = params;
+
+  if (!canChangeAssignee(userRole)) {
+    throw new Error('Only Product Lead and Product Team can assign tickets.');
+  }
+
+  const { error: ticketError } = await supabase
+    .from('tickets')
+    .update({ assignee_id: newAssigneeId })
+    .eq('id', ticketId);
+
+  if (ticketError) throw ticketError;
+
+  const { error: logError } = await supabase
+    .from('update_logs')
+    .insert([{
+      ticket_id: ticketId,
+      author_id: userId,
+      comment: `Assigned to ${newAssigneeName}`,
+      previous_status: currentStatus,
+      new_status: currentStatus,
+      hold_target_date: null,
+    }]);
+
+  if (logError) throw logError;
+}
+
+// ===== BATCH SAVE (multiple changes at once, single timestamp) =====
+
+export interface BatchAction {
+  type: 'transition' | 'priority' | 'sprint_status' | 'assignee';
+  payload: Record<string, unknown>;
+}
+
+interface BatchSaveParams {
+  ticketId: string;
+  currentStatus: TicketStatus;
+  userId: string;
+  userRole: UserRole;
+  reporterId: string;
+  comment: string;
+  actions: BatchAction[];
+  holdUntilDate?: string;
+}
+
+export async function batchSave(params: BatchSaveParams) {
+  const { ticketId, currentStatus, userId, userRole, reporterId, comment, actions, holdUntilDate } = params;
+
+  if (!comment.trim() && actions.some(a => a.type === 'transition')) {
+    throw new Error('Comment is required when changing status.');
+  }
+
+  const ticketUpdate: Record<string, unknown> = {};
+  const logEntries: Array<{
+    ticket_id: string;
+    author_id: string;
+    comment: string;
+    previous_status: TicketStatus;
+    new_status: TicketStatus;
+    hold_target_date: string | null;
+  }> = [];
+
+  let finalStatus = currentStatus;
+
+  for (const action of actions) {
+    switch (action.type) {
+      case 'transition': {
+        const newStatus = action.payload.newStatus as TicketStatus;
+        if (!canTransition(currentStatus, newStatus, userRole, userId, reporterId)) {
+          throw new Error(`Transition to ${newStatus} is not allowed.`);
+        }
+        ticketUpdate.status = newStatus;
+        finalStatus = newStatus;
+
+        if (newStatus === TicketStatus.ON_HOLD_UNTIL) {
+          if (!holdUntilDate) throw new Error('Hold until date is required.');
+          ticketUpdate.hold_until_date = holdUntilDate;
+        } else {
+          ticketUpdate.hold_until_date = null;
+        }
+
+        const productStatuses = [TicketStatus.IN_PRODUCT_SCOPE, TicketStatus.IN_PROGRESS, TicketStatus.RESOLVED, TicketStatus.ON_HOLD_UNTIL];
+        if (productStatuses.includes(newStatus)) {
+          ticketUpdate.last_product_activity_at = new Date().toISOString();
+        }
+
+        if (isReopenTransition(currentStatus, newStatus)) {
+          const { data: current } = await supabase
+            .from('tickets').select('reopen_count').eq('id', ticketId).single();
+          ticketUpdate.is_reopened = true;
+          ticketUpdate.reopen_count = (current?.reopen_count ?? 0) + 1;
+        }
+
+        const nonProductStatuses = [TicketStatus.RETURNED_TO_CS, TicketStatus.CLOSED, TicketStatus.NEW_ESCALATION];
+        if (nonProductStatuses.includes(newStatus)) {
+          ticketUpdate.sprint_status = null;
+        }
+        break;
+      }
+      case 'priority': {
+        const newPriority = action.payload.newPriority as Priority;
+        ticketUpdate.priority = newPriority;
+        break;
+      }
+      case 'sprint_status': {
+        const newSprint = action.payload.newSprintStatus as SprintStatus;
+        ticketUpdate.sprint_status = newSprint;
+        break;
+      }
+      case 'assignee': {
+        const newAssigneeId = action.payload.newAssigneeId as string;
+        ticketUpdate.assignee_id = newAssigneeId;
+        break;
+      }
+    }
+  }
+
+  // Update latest_comment if provided
+  if (comment.trim()) {
+    ticketUpdate.latest_comment = comment.trim();
+  }
+
+  // Apply all ticket changes in one update
+  if (Object.keys(ticketUpdate).length > 0) {
+    const { error: ticketError } = await supabase
+      .from('tickets')
+      .update(ticketUpdate)
+      .eq('id', ticketId);
+
+    if (ticketError) throw ticketError;
+  }
+
+  // Create a single audit log entry with all changes described in comment
+  const auditComment = buildAuditComment(actions, comment, params);
+  const { error: logError } = await supabase
+    .from('update_logs')
+    .insert([{
+      ticket_id: ticketId,
+      author_id: userId,
+      comment: auditComment,
+      previous_status: currentStatus,
+      new_status: finalStatus,
+      hold_target_date: holdUntilDate || null,
+    }]);
+
+  if (logError) throw logError;
+}
+
+function buildAuditComment(actions: BatchAction[], comment: string, params: BatchSaveParams): string {
+  const parts: string[] = [];
+
+  for (const action of actions) {
+    switch (action.type) {
+      case 'priority':
+        parts.push(`Priority → ${action.payload.newPriority}`);
+        break;
+      case 'sprint_status':
+        parts.push(`Sprint → ${(action.payload.newSprintStatus as string).replace('_', ' ')}`);
+        break;
+      case 'assignee':
+        parts.push(`Assigned to ${action.payload.newAssigneeName || 'team member'}`);
+        break;
+    }
+  }
+
+  if (comment.trim()) {
+    parts.push(comment.trim());
+  }
+
+  return parts.join(' | ') || comment.trim() || 'Batch update';
 }
 
 // ===== REVERT LAST ACTION =====
@@ -260,11 +480,9 @@ export async function revertLastAction(params: RevertParams) {
   const { ticketId, userId, userRole } = params;
 
   if (!canRevertLastAction(userRole)) {
-    throw new Error('Only CS Lead and Product Lead can revert actions.');
+    throw new Error('Only authorized roles can revert actions.');
   }
 
-  // Fetch recent logs for this ticket, then find the last real status change in JS.
-  // (Supabase filters can't compare two columns, so this must be done client-side.)
   const { data: logs, error: fetchError } = await supabase
     .from('update_logs')
     .select('*')
@@ -283,23 +501,19 @@ export async function revertLastAction(params: RevertParams) {
   const revertToStatus = lastStatusChange.previous_status as TicketStatus;
   const revertFromStatus = lastStatusChange.new_status as TicketStatus;
 
-  // Revert ticket status
   const ticketUpdate: Record<string, unknown> = {
     status: revertToStatus,
   };
 
-  // Restore the hold date when reverting back into ON_HOLD, otherwise clear it
   if (revertToStatus === TicketStatus.ON_HOLD_UNTIL) {
-    // Find the log that originally set this hold date
     const holdLog = logs?.find(
       log => log.new_status === TicketStatus.ON_HOLD_UNTIL && log.hold_target_date
     );
-    ticketUpdate.hold_until_date = holdLog?.hold_target_date ?? lastStatusChange.hold_target_date ?? null;
+    ticketUpdate.hold_until_date = holdLog?.hold_target_date ?? null;
   } else {
     ticketUpdate.hold_until_date = null;
   }
 
-  // If we're undoing a reopen, roll the reopen counter back
   if (isReopenTransition(revertToStatus, revertFromStatus)) {
     const { data: current } = await supabase
       .from('tickets')
@@ -319,7 +533,6 @@ export async function revertLastAction(params: RevertParams) {
 
   if (ticketError) throw ticketError;
 
-  // Add audit entry for the revert
   const { error: logError } = await supabase
     .from('update_logs')
     .insert([{

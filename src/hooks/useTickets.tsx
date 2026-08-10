@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
+import { syncJiraStatuses } from '../lib/jiraSync';
 import { Ticket, UpdateLog, TicketStatus, QueueTab, UserRole, SortConfig, FilterConfig, Priority, TicketSubType, PRIORITY_ORDER } from '../types';
 
 export function useTickets() {
@@ -31,7 +32,6 @@ export function useTickets() {
         setHoldExpiredCount(expired.length);
         const expiredIds = expired.map(t => t.id);
 
-        // Update all expired tickets to PENDING_PROD_REVIEW
         await supabase
           .from('tickets')
           .update({
@@ -40,7 +40,6 @@ export function useTickets() {
           })
           .in('id', expiredIds);
 
-        // Add audit log entries
         const logEntries = expired.map(t => ({
           ticket_id: t.id,
           author_id: t.reporter_id,
@@ -51,7 +50,6 @@ export function useTickets() {
         }));
         await supabase.from('update_logs').insert(logEntries);
 
-        // Re-fetch to get updated data
         const { data: refreshed } = await supabase
           .from('tickets')
           .select('*, reporter:app_users!reporter_id(*)')
@@ -66,7 +64,6 @@ export function useTickets() {
         }
       } else {
         await updateSlaBreachCounts(ticketList);
-        // Re-fetch after SLA updates
         const { data: refreshed } = await supabase
           .from('tickets')
           .select('*, reporter:app_users!reporter_id(*)')
@@ -81,30 +78,42 @@ export function useTickets() {
     fetchTickets();
   }, [fetchTickets]);
 
+  // Sync JIRA statuses in background after tickets load
+  useEffect(() => {
+    if (tickets.length > 0) {
+      syncJiraStatuses(tickets).then(() => {
+        // Re-fetch to pick up updated jira_status values
+        supabase
+          .from('tickets')
+          .select('*, reporter:app_users!reporter_id(*)')
+          .order('created_at', { ascending: false })
+          .then(({ data }) => {
+            if (data) setTickets(data as Ticket[]);
+          });
+      });
+    }
+  }, [tickets.length]); // Only re-run when ticket count changes (i.e. initial load)
+
   return { tickets, loading, error, refetch: fetchTickets, holdExpiredCount };
 }
 
-// Calculates and persists SLA breach counts.
-// Each full 7-day period without a product update counts as one breach.
-// This only increments — it never decreases, even after an update is posted.
+// SLA breach count updater
 async function updateSlaBreachCounts(tickets: Ticket[]) {
   const now = new Date();
   const updates: { id: string; count: number }[] = [];
 
   for (const t of tickets) {
-    if (t.status !== TicketStatus.IN_PRODUCT_SCOPE) continue;
+    if (t.status !== TicketStatus.IN_PRODUCT_SCOPE && t.status !== TicketStatus.IN_PROGRESS) continue;
     const lastActivity = new Date(t.last_product_activity_at);
     const daysSince = Math.floor((now.getTime() - lastActivity.getTime()) / (1000 * 60 * 60 * 24));
     if (daysSince < 7) continue;
 
-    // Each 7-day window = 1 breach
     const expectedBreaches = Math.floor(daysSince / 7);
     if (expectedBreaches > (t.sla_breach_count || 0)) {
       updates.push({ id: t.id, count: expectedBreaches });
     }
   }
 
-  // Batch update
   for (const u of updates) {
     await supabase
       .from('tickets')
@@ -144,24 +153,40 @@ export function useTicketLogs(ticketId: string | null) {
   return { logs, loading, refetch: fetchLogs };
 }
 
+// Fetch all users (for assignee dropdown, created by filter)
+export function useAllUsers() {
+  const [users, setUsers] = useState<{ id: string; full_name: string; role: string }[]>([]);
+
+  useEffect(() => {
+    supabase
+      .from('app_users')
+      .select('id, full_name, role')
+      .order('full_name')
+      .then(({ data }) => {
+        if (data) setUsers(data);
+      });
+  }, []);
+
+  return users;
+}
+
 // ===== ROLE-BASED VISIBILITY =====
 
 export function getVisibleTickets(tickets: Ticket[], role: UserRole, userId: string): Ticket[] {
   if (role === UserRole.ADMIN) {
-    // ADMIN sees everything
     return tickets;
   }
   if (role === UserRole.CS_MANAGER) {
-    // CSM sees ONLY their own tickets
     return tickets.filter(t => t.reporter_id === userId);
   }
-  if (role === UserRole.PRODUCT_LEAD) {
-    // Product Lead only sees tickets escalated to product pipeline
+  if (role === UserRole.PRODUCT_LEAD || role === UserRole.PRODUCT_TEAM) {
     return tickets.filter(t =>
       t.status === TicketStatus.PENDING_PROD_REVIEW ||
       t.status === TicketStatus.IN_PRODUCT_SCOPE ||
+      t.status === TicketStatus.IN_PROGRESS ||
       t.status === TicketStatus.ON_HOLD_UNTIL ||
       t.status === TicketStatus.RESOLVED ||
+      t.status === TicketStatus.RETURNED_TO_CS ||
       t.status === TicketStatus.CLOSED
     );
   }
@@ -172,23 +197,24 @@ export function getVisibleTickets(tickets: Ticket[], role: UserRole, userId: str
 // ===== TAB FILTERING =====
 
 export function filterTicketsByTab(tickets: Ticket[], tab: QueueTab, userId?: string): Ticket[] {
-  const now = new Date();
-
   switch (tab) {
     case 'all':
       return tickets;
-    case 'my_tickets':
-      return tickets.filter(t => t.reporter_id === userId);
     case 'pending_cs':
       return tickets.filter(t => t.status === TicketStatus.NEW_ESCALATION);
     case 'pending_product':
-      return tickets.filter(t =>
-        t.status === TicketStatus.PENDING_PROD_REVIEW
-      );
+      // Auto-sort pending review by priority (Critical first)
+      return tickets
+        .filter(t => t.status === TicketStatus.PENDING_PROD_REVIEW)
+        .sort((a, b) => PRIORITY_ORDER[a.priority] - PRIORITY_ORDER[b.priority]);
     case 'in_scope':
       return tickets.filter(t => t.status === TicketStatus.IN_PRODUCT_SCOPE);
+    case 'in_progress':
+      return tickets.filter(t => t.status === TicketStatus.IN_PROGRESS);
     case 'on_hold':
       return tickets.filter(t => t.status === TicketStatus.ON_HOLD_UNTIL);
+    case 'returned_to_cs':
+      return tickets.filter(t => t.status === TicketStatus.RETURNED_TO_CS);
     case 'resolved':
       return tickets.filter(t =>
         t.status === TicketStatus.RESOLVED ||
@@ -251,6 +277,7 @@ export function applyFilters(tickets: Ticket[], filters: FilterConfig): Ticket[]
       return false;
     }
     if (filters.createdBy !== 'ALL' && t.reporter_id !== filters.createdBy) return false;
+    if (filters.assignee !== 'ALL' && t.assignee_id !== filters.assignee) return false;
     return true;
   });
 }
@@ -258,8 +285,15 @@ export function applyFilters(tickets: Ticket[], filters: FilterConfig): Ticket[]
 // ===== SLA & HOLD HELPERS =====
 
 export function needsWeeklyUpdate(ticket: Ticket): boolean {
-  if (ticket.status !== TicketStatus.IN_PRODUCT_SCOPE) return false;
-  const lastActivity = new Date(ticket.last_product_activity_at);
+  if (ticket.status !== TicketStatus.IN_PRODUCT_SCOPE && ticket.status !== TicketStatus.IN_PROGRESS) return false;
+  
+  // SLA breach = 7+ days with no manual update AND no JIRA status change
+  const lastManualActivity = new Date(ticket.last_product_activity_at).getTime();
+  const lastJiraChange = ticket.last_jira_status_change_at
+    ? new Date(ticket.last_jira_status_change_at).getTime()
+    : 0;
+  const lastActivity = new Date(Math.max(lastManualActivity, lastJiraChange));
+  
   const sevenDaysAgo = new Date();
   sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
   return lastActivity < sevenDaysAgo;
@@ -278,9 +312,7 @@ export function getDaysSinceCreated(ticket: Ticket): number {
   return Math.floor(diffMs / (1000 * 60 * 60 * 24));
 }
 
-// ===== ATTENTION FLAGS (data-driven, persist until action is taken) =====
-// These drive both the row highlighting and notification banners.
-// They clear automatically once Product Lead takes the relevant action.
+// ===== ATTENTION FLAGS =====
 
 export type AttentionReason = 'hold_expired' | 'sla_breach';
 
@@ -293,7 +325,6 @@ export function getAttentionTickets(tickets: Ticket[]): AttentionFlag[] {
   const flags: AttentionFlag[] = [];
 
   for (const t of tickets) {
-    // SLA breach: IN_PRODUCT_SCOPE and no update for 7+ days
     if (needsWeeklyUpdate(t)) {
       flags.push({ ticketId: t.id, reason: 'sla_breach' });
     }
@@ -305,4 +336,37 @@ export function getAttentionTickets(tickets: Ticket[]): AttentionFlag[] {
 export function ticketNeedsAttention(ticket: Ticket, attentionFlags: AttentionFlag[]): AttentionReason | null {
   const flag = attentionFlags.find(f => f.ticketId === ticket.id);
   return flag?.reason || null;
+}
+
+// ===== EXCEL EXPORT =====
+
+export function exportTicketsToExcel(tickets: Ticket[]) {
+  const rows = tickets.map(t => ({
+    'ID': t.custom_id,
+    'Lab/Client': t.lab_name,
+    'Client ID': t.client_id,
+    'Subject': t.subject,
+    'Type': t.sub_type,
+    'Priority': t.priority,
+    'Status': t.status,
+    'Sprint Status': t.sprint_status || '',
+    'Reporter': t.reporter?.full_name || '',
+    'JIRA': t.freshdesk_id || '',
+    'JIRA Status': t.jira_status || '',
+    'SLA Breaches': t.sla_breach_count || 0,
+    'Days Since Created': getDaysSinceCreated(t),
+    'Latest Comment': t.latest_comment || '',
+    'Created At': new Date(t.created_at).toLocaleDateString(),
+    'Updated At': new Date(t.updated_at).toLocaleDateString(),
+  }));
+  return rows;
+}
+
+export async function downloadExcel(tickets: Ticket[], filename: string) {
+  const XLSX = await import('xlsx');
+  const data = exportTicketsToExcel(tickets);
+  const ws = XLSX.utils.json_to_sheet(data);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Tickets');
+  XLSX.writeFile(wb, filename);
 }

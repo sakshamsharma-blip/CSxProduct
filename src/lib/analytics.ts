@@ -41,24 +41,26 @@ export function filterByDateRange(tickets: Ticket[], range: DateRange): Ticket[]
 export interface StatCards {
   totalRaised: number;
   currentlyOpen: number;
+  currentlyResolved: number;
   closed: number;
-  reopenRate: number; // percentage
-  avgResolutionTAT: number; // hours
-  avgClosureTAT: number; // hours
-  avgEndToEndTAT: number; // hours
+  reopenRate: number;
+  avgResolutionTAT: number;
+  avgClosureTAT: number;
+  avgEndToEndTAT: number;
   slaBreaches: number;
 }
 
 export function computeStatCards(tickets: Ticket[], allTickets: Ticket[], logs: UpdateLog[]): StatCards {
   const totalRaised = tickets.length;
   const closed = tickets.filter(t => t.status === TicketStatus.CLOSED).length;
-  const currentlyOpen = allTickets.filter(t => t.status !== TicketStatus.CLOSED).length;
+  const currentlyOpen = allTickets.filter(t => t.status !== TicketStatus.CLOSED && t.status !== TicketStatus.RESOLVED && t.status !== TicketStatus.RESOLVED_BY_CS).length;
+  const currentlyResolved = allTickets.filter(t => t.status === TicketStatus.RESOLVED || t.status === TicketStatus.RESOLVED_BY_CS).length;
   const reopened = tickets.filter(t => t.is_reopened).length;
   const reopenRate = totalRaised > 0 ? Math.round((reopened / totalRaised) * 100) : 0;
 
-  // SLA breaches: tickets in IN_PRODUCT_SCOPE with last_product_activity > 7 days
+  // SLA breaches: tickets in IN_PRODUCT_SCOPE or IN_PROGRESS with last_product_activity > 7 days
   const slaBreaches = allTickets.filter(t => {
-    if (t.status !== TicketStatus.IN_PRODUCT_SCOPE) return false;
+    if (t.status !== TicketStatus.IN_PRODUCT_SCOPE && t.status !== TicketStatus.IN_PROGRESS) return false;
     const lastActivity = new Date(t.last_product_activity_at);
     return differenceInDays(new Date(), lastActivity) > 7;
   }).length;
@@ -99,6 +101,7 @@ export function computeStatCards(tickets: Ticket[], allTickets: Ticket[], logs: 
   return {
     totalRaised,
     currentlyOpen,
+    currentlyResolved,
     closed,
     reopenRate,
     avgResolutionTAT: avg(resolutionTATs),
@@ -137,7 +140,9 @@ export function getStatusPipeline(tickets: Ticket[]): TypeDistribution[] {
     TicketStatus.NEW_ESCALATION,
     TicketStatus.PENDING_PROD_REVIEW,
     TicketStatus.IN_PRODUCT_SCOPE,
+    TicketStatus.IN_PROGRESS,
     TicketStatus.ON_HOLD_UNTIL,
+    TicketStatus.RETURNED_TO_CS,
     TicketStatus.RESOLVED,
     TicketStatus.CLOSED,
   ];
@@ -188,16 +193,18 @@ export interface ClientStat {
 }
 
 export function getTopClients(tickets: Ticket[], logs: UpdateLog[]): ClientStat[] {
+  // Group by client_id (avoids spelling inconsistencies with lab_name)
   const clientMap: Record<string, Ticket[]> = {};
 
   for (const t of tickets) {
-    const key = `${t.lab_name}|||${t.client_id}`;
+    const key = t.client_id || 'NO_ID';
     if (!clientMap[key]) clientMap[key] = [];
     clientMap[key].push(t);
   }
 
-  const stats: ClientStat[] = Object.entries(clientMap).map(([key, clientTickets]) => {
-    const [clientName, clientId] = key.split('|||');
+  const stats: ClientStat[] = Object.entries(clientMap).map(([clientId, clientTickets]) => {
+    // Use the most recent lab_name as display name for this client_id
+    const clientName = clientTickets[0]?.lab_name || clientId;
     const open = clientTickets.filter(t => t.status !== TicketStatus.CLOSED).length;
     const closed = clientTickets.filter(t => t.status === TicketStatus.CLOSED).length;
     const reopenCount = clientTickets.reduce((sum, t) => sum + t.reopen_count, 0);

@@ -11,11 +11,12 @@ interface QueueTabsProps {
 interface TabDef {
   key: QueueTab;
   label: string;
-  count: (tickets: Ticket[], userId?: string) => number;
+  count: (tickets: Ticket[]) => number;
   visibleTo: UserRole[];
 }
 
-const ALL_ROLES = [UserRole.CS_MANAGER, UserRole.CS_LEAD, UserRole.PRODUCT_LEAD, UserRole.ADMIN];
+const ALL_ROLES = [UserRole.CS_MANAGER, UserRole.CS_LEAD, UserRole.PRODUCT_LEAD, UserRole.PRODUCT_TEAM, UserRole.ADMIN];
+const LEAD_AND_PRODUCT = [UserRole.CS_LEAD, UserRole.PRODUCT_LEAD, UserRole.PRODUCT_TEAM, UserRole.ADMIN];
 
 const TABS: TabDef[] = [
   {
@@ -25,29 +26,33 @@ const TABS: TabDef[] = [
     visibleTo: ALL_ROLES,
   },
   {
-    key: 'my_tickets',
-    label: 'My Tickets',
-    count: (t, userId) => t.filter(x => x.reporter_id === userId).length,
-    visibleTo: [UserRole.CS_LEAD, UserRole.ADMIN],
-  },
-  {
     key: 'pending_cs',
     label: 'Pending CS Triage',
     count: (t) => t.filter(x => x.status === TicketStatus.NEW_ESCALATION).length,
     visibleTo: [UserRole.CS_MANAGER, UserRole.CS_LEAD, UserRole.ADMIN],
   },
   {
+    key: 'returned_to_cs',
+    label: 'Returned to CS',
+    count: (t) => t.filter(x => x.status === TicketStatus.RETURNED_TO_CS).length,
+    visibleTo: [UserRole.CS_LEAD, UserRole.PRODUCT_LEAD, UserRole.PRODUCT_TEAM, UserRole.ADMIN],
+  },
+  {
     key: 'pending_product',
     label: 'Pending Review',
-    count: (t) => t.filter(x =>
-      x.status === TicketStatus.PENDING_PROD_REVIEW
-    ).length,
+    count: (t) => t.filter(x => x.status === TicketStatus.PENDING_PROD_REVIEW).length,
     visibleTo: ALL_ROLES,
   },
   {
     key: 'in_scope',
     label: 'In Product Scope',
     count: (t) => t.filter(x => x.status === TicketStatus.IN_PRODUCT_SCOPE).length,
+    visibleTo: ALL_ROLES,
+  },
+  {
+    key: 'in_progress',
+    label: 'In Progress',
+    count: (t) => t.filter(x => x.status === TicketStatus.IN_PROGRESS).length,
     visibleTo: ALL_ROLES,
   },
   {
@@ -79,7 +84,7 @@ export function QueueTabs({ activeTab, onTabChange, tickets, userRole, userId }:
     <div className="border-b border-gray-200 bg-white px-4">
       <nav className="flex gap-1 overflow-x-auto" aria-label="Queue tabs">
         {visibleTabs.map(tab => {
-          const count = tab.count(tickets, userId);
+          const count = tab.count(tickets);
           const isActive = activeTab === tab.key;
           return (
             <button

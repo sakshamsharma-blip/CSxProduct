@@ -1,20 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
-import { AppUser, UserRole } from '../types';
-
-const ROLE_LABELS: Record<UserRole, string> = {
-  [UserRole.CS_MANAGER]: 'CS Manager',
-  [UserRole.CS_LEAD]: 'CS Lead',
-  [UserRole.PRODUCT_LEAD]: 'Product Lead',
-  [UserRole.ADMIN]: 'Admin',
-};
-
-const ROLE_BADGE_COLORS: Record<UserRole, string> = {
-  [UserRole.CS_MANAGER]: 'bg-teal-100 text-teal-800',
-  [UserRole.CS_LEAD]: 'bg-blue-100 text-blue-800',
-  [UserRole.PRODUCT_LEAD]: 'bg-purple-100 text-purple-800',
-  [UserRole.ADMIN]: 'bg-red-100 text-red-800',
-};
+import { AppUser, UserRole, ROLE_LABELS, ROLE_BADGE_COLORS } from '../types';
 
 interface UserManagementProps {
   onBack: () => void;
@@ -182,6 +168,7 @@ export function UserManagement({ onBack }: UserManagementProps) {
                 <option value={UserRole.CS_MANAGER}>CS Manager</option>
                 <option value={UserRole.CS_LEAD}>CS Lead</option>
                 <option value={UserRole.PRODUCT_LEAD}>Product Lead</option>
+                <option value={UserRole.PRODUCT_TEAM}>Product Team</option>
               </select>
             </div>
             <button
@@ -226,6 +213,7 @@ export function UserManagement({ onBack }: UserManagementProps) {
                   <option value={UserRole.CS_MANAGER}>CS Manager</option>
                   <option value={UserRole.CS_LEAD}>CS Lead</option>
                   <option value={UserRole.PRODUCT_LEAD}>Product Lead</option>
+                  <option value={UserRole.PRODUCT_TEAM}>Product Team</option>
                 </select>
                 <button
                   type="submit"

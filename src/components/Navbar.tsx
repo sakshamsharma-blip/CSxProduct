@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { useAuth } from '../hooks/useAuth';
-import { UserRole } from '../types';
+import { UserRole, ROLE_LABELS } from '../types';
 import { BrandLogo } from './BrandLogo';
 
 interface NavbarProps {
@@ -11,23 +11,15 @@ interface NavbarProps {
   currentPage: 'dashboard' | 'analytics' | 'users';
 }
 
-const ROLE_LABELS: Record<UserRole, string> = {
-  [UserRole.CS_MANAGER]: 'CS Manager',
-  [UserRole.CS_LEAD]: 'CS Lead',
-  [UserRole.PRODUCT_LEAD]: 'Product Lead',
-  [UserRole.ADMIN]: 'Admin',
-};
-
 export function Navbar({ onNewRequest, onAnalytics, onChangePassword, onManageUsers, currentPage }: NavbarProps) {
   const { appUser, signOut } = useAuth();
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
   const canCreate = appUser?.role === UserRole.CS_MANAGER || appUser?.role === UserRole.CS_LEAD || appUser?.role === UserRole.ADMIN;
-  const canViewAnalytics = appUser?.role === UserRole.CS_LEAD || appUser?.role === UserRole.PRODUCT_LEAD || appUser?.role === UserRole.ADMIN;
+  const canViewAnalytics = appUser?.role === UserRole.CS_LEAD || appUser?.role === UserRole.PRODUCT_LEAD || appUser?.role === UserRole.PRODUCT_TEAM || appUser?.role === UserRole.ADMIN;
   const canManageUsers = appUser?.role === UserRole.CS_LEAD || appUser?.role === UserRole.PRODUCT_LEAD || appUser?.role === UserRole.ADMIN;
 
-  // Close menu when clicking outside
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
       if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
@@ -96,7 +88,6 @@ export function Navbar({ onNewRequest, onAnalytics, onChangePassword, onManageUs
             {/* Dropdown Menu */}
             {menuOpen && (
               <div className="absolute right-0 top-full mt-1 w-52 bg-white rounded-md shadow-lg border border-gray-200 py-1 z-50">
-                {/* User info header */}
                 <div className="px-4 py-2 border-b border-gray-100 sm:hidden">
                   <p className="text-sm font-medium text-gray-900">{appUser?.full_name}</p>
                   <p className="text-xs text-gray-500">{ROLE_LABELS[appUser?.role as UserRole]}</p>

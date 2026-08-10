@@ -1,14 +1,16 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { formatDistanceToNow, format } from 'date-fns';
 import {
-  Ticket, UpdateLog, TicketStatus, UserRole, Priority, SprintStatus,
+  Ticket, UpdateLog, TicketStatus, UserRole, Priority, SprintStatus, AppUser,
   STATUS_LABELS, STATUS_COLORS, PRIORITY_COLORS, SPRINT_STATUS_LABELS, SPRINT_STATUS_COLORS,
-  getStatusLabel, getStatusColor, isReopenedPending
+  ROLE_LABELS, ROLE_BADGE_COLORS,
+  getStatusLabel, getStatusColor, isReopenedPending, REOPENED_LABEL, REOPENED_COLOR,
+  PRODUCT_ROLES
 } from '../types';
 import { useAuth } from '../hooks/useAuth';
-import { useTicketLogs } from '../hooks/useTickets';
-import { getAvailableTransitions, canPostUpdate, canChangePriority, canChangeSprintStatus, canRevertLastAction } from '../lib/stateMachine';
-import { transitionTicket, postProgressUpdate, changePriority, changeSprintStatus, revertLastAction } from '../lib/actions';
+import { useTicketLogs, useAllUsers } from '../hooks/useTickets';
+import { getAvailableTransitions, canPostUpdate, canChangePriority, canChangeSprintStatus, canRevertLastAction, canChangeAssignee } from '../lib/stateMachine';
+import { transitionTicket, postProgressUpdate, changePriority, changeSprintStatus, changeAssignee, revertLastAction, addComment, batchSave, BatchAction } from '../lib/actions';
 
 interface TicketDrawerProps {
   ticket: Ticket | null;
@@ -16,10 +18,6 @@ interface TicketDrawerProps {
   onUpdate: () => void;
 }
 
-/**
- * Supabase rejects with plain objects rather than Error instances, so an
- * `instanceof Error` check swallows the actual reason. Pull the message out.
- */
 function describeError(err: unknown, fallback: string): string {
   if (err instanceof Error) return err.message;
   if (err && typeof err === 'object') {
@@ -32,73 +30,154 @@ function describeError(err: unknown, fallback: string): string {
   return fallback;
 }
 
-// Green = resolving/completing work, blue = moving it forward, gray = parking, red = reopening.
 const TRANSITION_BUTTON_LABELS: Record<string, { label: string; color: string }> = {
   RESOLVED_BY_CS: { label: 'Solve Internally', color: 'bg-emerald-600 hover:bg-emerald-700' },
   PENDING_PROD_REVIEW: { label: 'Escalate to Product', color: 'bg-purple-600 hover:bg-purple-700' },
   IN_PRODUCT_SCOPE: { label: 'Accept into Scope', color: 'bg-blue-600 hover:bg-blue-700' },
+  IN_PROGRESS: { label: 'Move to In Progress', color: 'bg-indigo-600 hover:bg-indigo-700' },
   ON_HOLD_UNTIL: { label: 'Put on Hold', color: 'bg-orange-500 hover:bg-orange-600' },
   RESOLVED: { label: 'Mark Resolved', color: 'bg-green-600 hover:bg-green-700' },
   CLOSED: { label: 'Close Ticket', color: 'bg-gray-700 hover:bg-gray-800' },
   NEW_ESCALATION: { label: 'Reopen', color: 'bg-red-500 hover:bg-red-600' },
+  RETURNED_TO_CS: { label: 'Send back to CS Lead', color: 'bg-amber-600 hover:bg-amber-700' },
 };
 
 export function TicketDrawer({ ticket, onClose, onUpdate }: TicketDrawerProps) {
   const { appUser } = useAuth();
   const { logs, loading: logsLoading, refetch: refetchLogs } = useTicketLogs(ticket?.id || null);
+  const allUsers = useAllUsers();
+
   const [comment, setComment] = useState('');
   const [holdDate, setHoldDate] = useState('');
   const [actionLoading, setActionLoading] = useState(false);
   const [error, setError] = useState('');
 
+  // Batch mode state
+  const [pendingActions, setPendingActions] = useState<BatchAction[]>([]);
+  const [pendingPriority, setPendingPriority] = useState<Priority | null>(null);
+  const [pendingSprint, setPendingSprint] = useState<SprintStatus | null>(null);
+  const [pendingAssignee, setPendingAssignee] = useState<string | null>(null);
+  const [pendingTransition, setPendingTransition] = useState<TicketStatus | null>(null);
+
+  // Reset pending state when ticket changes
+  useEffect(() => {
+    setPendingActions([]);
+    setPendingPriority(null);
+    setPendingSprint(null);
+    setPendingAssignee(null);
+    setPendingTransition(null);
+    setComment('');
+    setHoldDate('');
+    setError('');
+  }, [ticket?.id]);
+
   if (!ticket || !appUser) return null;
 
   const userRole = appUser.role as UserRole;
-  const userId = appUser.id;
-  const reporterId = ticket.reporter_id;
+  const userId = appUser!.id;
+  const reporterId = ticket!.reporter_id;
 
-  const availableTransitions = getAvailableTransitions(ticket.status as TicketStatus, userRole, userId, reporterId);
-  const showPostUpdate = canPostUpdate(ticket.status as TicketStatus, userRole);
-  const showPriorityChange = canChangePriority(userRole, ticket.sprint_status);
-  const showSprintStatus = canChangeSprintStatus(ticket.status as TicketStatus, userRole);
+  const availableTransitions = getAvailableTransitions(ticket!.status as TicketStatus, userRole, userId, reporterId);
+  const showPostUpdate = canPostUpdate(ticket!.status as TicketStatus, userRole);
+  const showPriorityChange = canChangePriority(userRole, ticket!.sprint_status);
+  const showSprintStatus = canChangeSprintStatus(ticket!.status as TicketStatus, userRole);
   const showRevert = canRevertLastAction(userRole);
+  const showAssignee = canChangeAssignee(userRole);
 
-  async function handleTransition(newStatus: TicketStatus) {
-    if (!ticket || !appUser) return;
-    if (!comment.trim()) {
-      setError('Please add a comment before taking action.');
-      return;
-    }
+  const productUsers = allUsers.filter(u => PRODUCT_ROLES.includes(u.role as UserRole));
+  const hasPendingChanges = pendingActions.length > 0 || pendingPriority || pendingSprint || pendingAssignee || pendingTransition;
+
+  // Queue a priority change
+  function queuePriority(newPriority: Priority) {
+    if (newPriority === ticket!.priority && !pendingPriority) return;
+    setPendingPriority(newPriority);
+    setPendingActions(prev => [...prev.filter(a => a.type !== 'priority'), { type: 'priority', payload: { newPriority } }]);
+  }
+
+  // Queue a sprint status change
+  function queueSprint(newSprint: SprintStatus) {
+    setPendingSprint(newSprint);
+    setPendingActions(prev => [...prev.filter(a => a.type !== 'sprint_status'), { type: 'sprint_status', payload: { newSprintStatus: newSprint } }]);
+  }
+
+  // Queue an assignee change
+  function queueAssignee(newAssigneeId: string) {
+    const assigneeUser = allUsers.find(u => u.id === newAssigneeId);
+    setPendingAssignee(newAssigneeId);
+    setPendingActions(prev => [...prev.filter(a => a.type !== 'assignee'), { type: 'assignee', payload: { newAssigneeId, newAssigneeName: assigneeUser?.full_name || '' } }]);
+  }
+
+  // Queue a transition
+  function queueTransition(newStatus: TicketStatus) {
     if (newStatus === TicketStatus.ON_HOLD_UNTIL && !holdDate) {
       setError('Please select a hold-until date.');
+      return;
+    }
+    setPendingTransition(newStatus);
+    setPendingActions(prev => [...prev.filter(a => a.type !== 'transition'), { type: 'transition', payload: { newStatus } }]);
+  }
+
+  // Save all pending changes at once
+  async function handleBatchSave() {
+    if (pendingTransition && !comment.trim()) {
+      setError('Comment is required when changing status.');
       return;
     }
 
     setActionLoading(true);
     setError('');
     try {
-      await transitionTicket({
-        ticketId: ticket.id,
-        currentStatus: ticket.status as TicketStatus,
-        newStatus,
-        userId: appUser.id,
+      await batchSave({
+        ticketId: ticket!.id,
+        currentStatus: ticket!.status as TicketStatus,
+        userId: appUser!.id,
         userRole,
-        reporterId: ticket.reporter_id,
-        comment,
-        holdUntilDate: newStatus === TicketStatus.ON_HOLD_UNTIL ? new Date(holdDate).toISOString() : undefined,
+        reporterId: ticket!.reporter_id,
+        comment: comment.trim(),
+        actions: pendingActions,
+        holdUntilDate: pendingTransition === TicketStatus.ON_HOLD_UNTIL ? new Date(holdDate).toISOString() : undefined,
       });
       setComment('');
       setHoldDate('');
+      setPendingActions([]);
+      setPendingPriority(null);
+      setPendingSprint(null);
+      setPendingAssignee(null);
+      setPendingTransition(null);
       await refetchLogs();
       onUpdate();
     } catch (err: unknown) {
-      setError(describeError(err, 'Action failed'));
+      setError(describeError(err, 'Save failed'));
     }
     setActionLoading(false);
   }
 
+  // Standalone comment (no action)
+  async function handleAddComment() {
+    if (!comment.trim()) {
+      setError('Please enter a comment.');
+      return;
+    }
+    setActionLoading(true);
+    setError('');
+    try {
+      await addComment({
+        ticketId: ticket!.id,
+        currentStatus: ticket!.status as TicketStatus,
+        userId: appUser!.id,
+        comment: comment.trim(),
+      });
+      setComment('');
+      await refetchLogs();
+      onUpdate();
+    } catch (err: unknown) {
+      setError(describeError(err, 'Failed to add comment'));
+    }
+    setActionLoading(false);
+  }
+
+  // Post progress update (resets SLA timer)
   async function handlePostUpdate() {
-    if (!ticket || !appUser) return;
     if (!comment.trim()) {
       setError('Please add a comment for the progress update.');
       return;
@@ -107,11 +186,11 @@ export function TicketDrawer({ ticket, onClose, onUpdate }: TicketDrawerProps) {
     setError('');
     try {
       await postProgressUpdate({
-        ticketId: ticket.id,
-        currentStatus: ticket.status as TicketStatus,
-        userId: appUser.id,
+        ticketId: ticket!.id,
+        currentStatus: ticket!.status as TicketStatus,
+        userId: appUser!.id,
         userRole,
-        comment,
+        comment: comment.trim(),
       });
       setComment('');
       await refetchLogs();
@@ -122,56 +201,14 @@ export function TicketDrawer({ ticket, onClose, onUpdate }: TicketDrawerProps) {
     setActionLoading(false);
   }
 
-  async function handlePriorityChange(newPriority: Priority) {
-    if (!ticket || !appUser) return;
-    setActionLoading(true);
-    setError('');
-    try {
-      await changePriority({
-        ticketId: ticket.id,
-        currentStatus: ticket.status as TicketStatus,
-        sprintStatus: ticket.sprint_status,
-        oldPriority: ticket.priority as Priority,
-        newPriority,
-        userId: appUser.id,
-        userRole,
-      });
-      await refetchLogs();
-      onUpdate();
-    } catch (err: unknown) {
-      setError(describeError(err, 'Failed to change priority'));
-    }
-    setActionLoading(false);
-  }
-
-  async function handleSprintStatusChange(newSprintStatus: SprintStatus) {
-    if (!ticket || !appUser) return;
-    setActionLoading(true);
-    setError('');
-    try {
-      await changeSprintStatus({
-        ticketId: ticket.id,
-        currentStatus: ticket.status as TicketStatus,
-        newSprintStatus,
-        userId: appUser.id,
-        userRole,
-      });
-      await refetchLogs();
-      onUpdate();
-    } catch (err: unknown) {
-      setError(describeError(err, 'Failed to change sprint status'));
-    }
-    setActionLoading(false);
-  }
-
+  // Revert
   async function handleRevert() {
-    if (!ticket || !appUser) return;
     setActionLoading(true);
     setError('');
     try {
       await revertLastAction({
-        ticketId: ticket.id,
-        userId: appUser.id,
+        ticketId: ticket!.id,
+        userId: appUser!.id,
         userRole,
       });
       await refetchLogs();
@@ -189,21 +226,20 @@ export function TicketDrawer({ ticket, onClose, onUpdate }: TicketDrawerProps) {
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-1 flex-wrap">
             <span className="font-mono text-sm text-gray-500">{ticket.custom_id}</span>
-            <span className={`px-2 py-0.5 rounded text-xs font-medium ${PRIORITY_COLORS[ticket.priority as Priority]}`}>
-              {ticket.priority}
+            <span className={`px-2 py-0.5 rounded text-xs font-medium ${PRIORITY_COLORS[pendingPriority || ticket!.priority as Priority]}`}>
+              {pendingPriority || ticket!.priority}
             </span>
             <span className={`px-2 py-0.5 rounded text-xs font-medium ${getStatusColor(ticket)}`}>
               {getStatusLabel(ticket)}
             </span>
-            {/* Once a reopened ticket moves past triage, keep a marker so leads still see the history */}
             {ticket.is_reopened && !isReopenedPending(ticket) && (
-              <span className="px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-700">
-                Reopened
+              <span className={`px-2 py-0.5 rounded text-xs font-medium ${REOPENED_COLOR}`}>
+                {REOPENED_LABEL}
               </span>
             )}
-            {ticket.sprint_status && (
-              <span className={`px-2 py-0.5 rounded text-xs font-medium ${SPRINT_STATUS_COLORS[ticket.sprint_status as SprintStatus]}`}>
-                {SPRINT_STATUS_LABELS[ticket.sprint_status as SprintStatus]}
+            {(pendingSprint || ticket!.sprint_status) && (
+              <span className={`px-2 py-0.5 rounded text-xs font-medium ${SPRINT_STATUS_COLORS[(pendingSprint || ticket!.sprint_status) as SprintStatus]}`}>
+                {SPRINT_STATUS_LABELS[(pendingSprint || ticket!.sprint_status) as SprintStatus]}
               </span>
             )}
           </div>
@@ -227,18 +263,20 @@ export function TicketDrawer({ ticket, onClose, onUpdate }: TicketDrawerProps) {
             <div><span className="font-medium">Reporter:</span> {ticket.reporter?.full_name || '—'}</div>
             <div><span className="font-medium">Client ID:</span> {ticket.client_id || '—'}</div>
             <div><span className="font-medium">Type:</span> {ticket.sub_type.replace('_', ' ')}</div>
-            <div><span className="font-medium">Freshdesk/Jira:</span> {ticket.freshdesk_id ? (
-              <a
-                href={ticket.freshdesk_id}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-blue-600 hover:text-blue-800 hover:underline ml-1"
-              >
-                Open Ticket ↗
-              </a>
-            ) : '—'}</div>
+            <div><span className="font-medium">Assignee:</span> {ticket.assignee?.full_name || 'Unassigned'}</div>
+            <div>
+              <span className="font-medium">JIRA:</span>{' '}
+              {ticket.freshdesk_id ? (
+                <a href={ticket.freshdesk_id} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:text-blue-800 hover:underline">
+                  Open Ticket ↗
+                </a>
+              ) : '—'}
+            </div>
             <div><span className="font-medium">Created:</span> {format(new Date(ticket.created_at), 'dd MMM yyyy, HH:mm')}</div>
             <div><span className="font-medium">Updated:</span> {formatDistanceToNow(new Date(ticket.updated_at), { addSuffix: true })}</div>
+            {ticket.jira_status && (
+              <div><span className="font-medium">JIRA Status:</span> <span className="px-1.5 py-0.5 bg-blue-50 text-blue-700 rounded text-xs">{ticket.jira_status}</span></div>
+            )}
             {ticket.hold_until_date && (
               <div className="col-span-2">
                 <span className="font-medium">On Hold Until:</span> {format(new Date(ticket.hold_until_date), 'dd MMM yyyy')}
@@ -247,16 +285,16 @@ export function TicketDrawer({ ticket, onClose, onUpdate }: TicketDrawerProps) {
           </div>
         </div>
 
-        {/* Section 2: Priority Change + Sprint Status */}
-        {(showPriorityChange || showSprintStatus) && (
+        {/* Section 2: Quick Controls (Priority, Sprint, Assignee) */}
+        {(showPriorityChange || showSprintStatus || showAssignee) && (
           <div className="p-4 border-b border-gray-100 bg-gray-50">
             <div className="flex gap-4 flex-wrap">
               {showPriorityChange && (
                 <div>
                   <label className="block text-xs font-medium text-gray-500 mb-1">Priority</label>
                   <select
-                    value={ticket.priority}
-                    onChange={e => handlePriorityChange(e.target.value as Priority)}
+                    value={pendingPriority || ticket!.priority}
+                    onChange={e => queuePriority(e.target.value as Priority)}
                     disabled={actionLoading}
                     className="px-2 py-1.5 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                   >
@@ -271,8 +309,8 @@ export function TicketDrawer({ ticket, onClose, onUpdate }: TicketDrawerProps) {
                 <div>
                   <label className="block text-xs font-medium text-gray-500 mb-1">Sprint Status</label>
                   <select
-                    value={ticket.sprint_status || ''}
-                    onChange={e => handleSprintStatusChange(e.target.value as SprintStatus)}
+                    value={pendingSprint || ticket!.sprint_status || ''}
+                    onChange={e => queueSprint(e.target.value as SprintStatus)}
                     disabled={actionLoading}
                     className="px-2 py-1.5 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                   >
@@ -283,80 +321,133 @@ export function TicketDrawer({ ticket, onClose, onUpdate }: TicketDrawerProps) {
                   </select>
                 </div>
               )}
-            </div>
-          </div>
-        )}
-
-        {/* Section 3: Action Bar */}
-        {(availableTransitions.length > 0 || showPostUpdate || showRevert) && (
-          <div className="p-4 border-b border-gray-100 bg-gray-50">
-            <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Actions</h3>
-
-            {/* Comment input */}
-            <textarea
-              value={comment}
-              onChange={e => setComment(e.target.value)}
-              placeholder="Add a comment (required for actions)..."
-              rows={3}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-600 mb-3"
-            />
-
-            {/* Hold date picker */}
-            {availableTransitions.includes(TicketStatus.ON_HOLD_UNTIL) && (
-              <div className="mb-3">
-                <label className="block text-xs text-gray-500 mb-1">Hold Until Date</label>
-                <input
-                  type="date"
-                  value={holdDate}
-                  onChange={e => setHoldDate(e.target.value)}
-                  min={new Date().toISOString().split('T')[0]}
-                  className="px-3 py-1.5 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-              </div>
-            )}
-
-            {error && (
-              <div className="bg-red-50 text-red-700 px-3 py-2 rounded-md text-xs mb-3">
-                {error}
-              </div>
-            )}
-
-            {/* Action buttons */}
-            <div className="flex flex-wrap gap-2">
-              {availableTransitions.map(status => {
-                const btn = TRANSITION_BUTTON_LABELS[status] || { label: status, color: 'bg-green-600 hover:bg-green-700' };
-                return (
-                  <button
-                    key={status}
-                    onClick={() => handleTransition(status)}
+              {showAssignee && (
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 mb-1">Assignee</label>
+                  <select
+                    value={pendingAssignee || ticket.assignee_id || ''}
+                    onChange={e => queueAssignee(e.target.value)}
                     disabled={actionLoading}
-                    className={`px-3 py-1.5 rounded-md text-xs font-medium text-white transition-colors disabled:opacity-50 ${btn.color}`}
+                    className="px-2 py-1.5 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                   >
-                    {btn.label}
-                  </button>
-                );
-              })}
-              {showPostUpdate && (
-                <button
-                  onClick={handlePostUpdate}
-                  disabled={actionLoading}
-                  className="px-3 py-1.5 rounded-md text-xs font-medium bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 transition-colors"
-                >
-                  Post Weekly Update
-                </button>
-              )}
-              {showRevert && (
-                <button
-                  onClick={handleRevert}
-                  disabled={actionLoading}
-                  className="px-3 py-1.5 rounded-md text-xs font-medium border border-gray-300 text-gray-600 bg-white hover:bg-gray-50 disabled:opacity-50 transition-colors"
-                >
-                  ↩ Revert Last Action
-                </button>
+                    <option value="">Unassigned</option>
+                    {productUsers.map(u => (
+                      <option key={u.id} value={u.id}>{u.full_name}</option>
+                    ))}
+                  </select>
+                </div>
               )}
             </div>
           </div>
         )}
+
+        {/* Section 3: Actions */}
+        <div className="p-4 border-b border-gray-100 bg-gray-50">
+          <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Actions</h3>
+
+          {/* Comment input */}
+          <textarea
+            value={comment}
+            onChange={e => setComment(e.target.value)}
+            placeholder="Add a comment or note..."
+            rows={3}
+            className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 mb-3"
+          />
+
+          {/* Hold date picker */}
+          {availableTransitions.includes(TicketStatus.ON_HOLD_UNTIL) && (
+            <div className="mb-3">
+              <label className="block text-xs text-gray-500 mb-1">Hold Until Date</label>
+              <input
+                type="date"
+                value={holdDate}
+                onChange={e => setHoldDate(e.target.value)}
+                min={new Date().toISOString().split('T')[0]}
+                className="px-3 py-1.5 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+          )}
+
+          {error && (
+            <div className="bg-red-50 text-red-700 px-3 py-2 rounded-md text-xs mb-3">
+              {error}
+            </div>
+          )}
+
+          {/* Pending changes indicator */}
+          {hasPendingChanges && (
+            <div className="bg-blue-50 border border-blue-200 text-blue-700 px-3 py-2 rounded-md text-xs mb-3">
+              <span className="font-medium">Unsaved changes:</span>{' '}
+              {pendingTransition && <span className="mr-2">Status → {STATUS_LABELS[pendingTransition]}</span>}
+              {pendingPriority && <span className="mr-2">Priority → {pendingPriority}</span>}
+              {pendingSprint && <span className="mr-2">Sprint → {SPRINT_STATUS_LABELS[pendingSprint]}</span>}
+              {pendingAssignee && <span className="mr-2">Assignee changed</span>}
+            </div>
+          )}
+
+          {/* Action buttons */}
+          <div className="flex flex-wrap gap-2 mb-3">
+            {/* Status transitions */}
+            {availableTransitions.map(status => {
+              const btn = TRANSITION_BUTTON_LABELS[status] || { label: status, color: 'bg-blue-600 hover:bg-blue-700' };
+              const isQueued = pendingTransition === status;
+              return (
+                <button
+                  key={status}
+                  onClick={() => queueTransition(status)}
+                  disabled={actionLoading}
+                  className={`px-3 py-1.5 rounded-md text-xs font-medium text-white transition-colors disabled:opacity-50 ${btn.color} ${isQueued ? 'ring-2 ring-offset-1 ring-blue-400' : ''}`}
+                >
+                  {btn.label}
+                </button>
+              );
+            })}
+
+            {/* Post weekly update */}
+            {showPostUpdate && (
+              <button
+                onClick={handlePostUpdate}
+                disabled={actionLoading}
+                className="px-3 py-1.5 rounded-md text-xs font-medium bg-blue-500 text-white hover:bg-blue-600 disabled:opacity-50 transition-colors"
+              >
+                Post Weekly Update
+              </button>
+            )}
+
+            {/* Revert */}
+            {showRevert && (
+              <button
+                onClick={handleRevert}
+                disabled={actionLoading}
+                className="px-3 py-1.5 rounded-md text-xs font-medium border border-gray-300 text-gray-600 bg-white hover:bg-gray-50 disabled:opacity-50 transition-colors"
+              >
+                ↩ Revert Last Action
+              </button>
+            )}
+          </div>
+
+          {/* Save + Comment buttons */}
+          <div className="flex gap-2">
+            {hasPendingChanges && (
+              <button
+                onClick={handleBatchSave}
+                disabled={actionLoading}
+                className="flex-1 px-4 py-2 rounded-md text-sm font-medium bg-green-600 text-white hover:bg-green-700 disabled:opacity-50 transition-colors"
+              >
+                {actionLoading ? 'Saving...' : 'Save All Changes'}
+              </button>
+            )}
+            {!hasPendingChanges && (
+              <button
+                onClick={handleAddComment}
+                disabled={actionLoading || !comment.trim()}
+                className="flex-1 px-4 py-2 rounded-md text-sm font-medium bg-gray-600 text-white hover:bg-gray-700 disabled:opacity-50 transition-colors"
+              >
+                Add Comment
+              </button>
+            )}
+          </div>
+        </div>
 
         {/* Section 4: Timeline Feed */}
         <div className="p-4">
@@ -382,7 +473,6 @@ export function TicketDrawer({ ticket, onClose, onUpdate }: TicketDrawerProps) {
 function TimelineEntry({ log }: { log: UpdateLog }) {
   const isStatusChange = log.previous_status !== log.new_status;
 
-  // A reopen lands on NEW_ESCALATION — label it "Reopened" so the timeline reads correctly
   const isReopenEntry =
     log.new_status === TicketStatus.NEW_ESCALATION &&
     (log.previous_status === TicketStatus.RESOLVED || log.previous_status === TicketStatus.RESOLVED_BY_CS);
@@ -395,8 +485,8 @@ function TimelineEntry({ log }: { log: UpdateLog }) {
       <div className="absolute left-[-5px] top-1 w-2 h-2 bg-blue-600 rounded-full"></div>
       <div className="flex items-center gap-2 mb-1 flex-wrap">
         <span className="text-sm font-medium text-gray-900">{log.author?.full_name || 'Unknown'}</span>
-        <span className="text-xs px-1.5 py-0.5 rounded bg-gray-100 text-gray-500">
-          {log.author?.role?.replace('_', ' ') || ''}
+        <span className={`text-xs px-1.5 py-0.5 rounded ${ROLE_BADGE_COLORS[(log.author?.role as UserRole) || UserRole.CS_MANAGER]}`}>
+          {ROLE_LABELS[(log.author?.role as UserRole) || UserRole.CS_MANAGER]}
         </span>
         <span className="text-xs text-gray-400">
           {formatDistanceToNow(new Date(log.created_at), { addSuffix: true })}
