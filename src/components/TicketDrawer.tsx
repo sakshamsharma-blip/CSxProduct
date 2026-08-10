@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { formatDistanceToNow, format } from 'date-fns';
 import {
-  Ticket, UpdateLog, TicketStatus, UserRole, Priority, SprintStatus, AppUser,
+  Ticket, UpdateLog, TicketStatus, UserRole, Priority, SprintStatus,
   STATUS_LABELS, STATUS_COLORS, PRIORITY_COLORS, SPRINT_STATUS_LABELS, SPRINT_STATUS_COLORS,
   ROLE_LABELS, ROLE_BADGE_COLORS,
   getStatusLabel, getStatusColor, isReopenedPending, REOPENED_LABEL, REOPENED_COLOR,
@@ -263,7 +263,11 @@ export function TicketDrawer({ ticket, onClose, onUpdate }: TicketDrawerProps) {
             <div><span className="font-medium">Reporter:</span> {ticket.reporter?.full_name || '—'}</div>
             <div><span className="font-medium">Client ID:</span> {ticket.client_id || '—'}</div>
             <div><span className="font-medium">Type:</span> {ticket.sub_type.replace('_', ' ')}</div>
-            <div><span className="font-medium">Assignee:</span> {ticket.assignee?.full_name || 'Unassigned'}</div>
+            <div><span className="font-medium">Assignee:</span> {
+              ticket.assignee_id
+                ? (allUsers.find(u => u.id === ticket.assignee_id)?.full_name || 'Unassigned')
+                : 'Unassigned'
+            }</div>
             <div>
               <span className="font-medium">JIRA:</span>{' '}
               {ticket.freshdesk_id ? (

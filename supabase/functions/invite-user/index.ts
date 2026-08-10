@@ -75,9 +75,9 @@ Deno.serve(async (req) => {
       .eq('id', caller.id)
       .single()
 
-    if (!callerProfile || !['CS_LEAD', 'PRODUCT_LEAD'].includes(callerProfile.role)) {
+    if (!callerProfile || !['CS_LEAD', 'PRODUCT_LEAD', 'ADMIN'].includes(callerProfile.role)) {
       return new Response(
-        JSON.stringify({ error: 'Only CS Lead and Product Lead can invite users' }),
+        JSON.stringify({ error: 'Only CS Lead, Product Lead, and Admin can invite users' }),
         { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       )
     }

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '../lib/supabase';
 import { syncJiraStatuses } from '../lib/jiraSync';
 import { Ticket, UpdateLog, TicketStatus, QueueTab, UserRole, SortConfig, FilterConfig, Priority, TicketSubType, PRIORITY_ORDER } from '../types';
@@ -78,11 +78,12 @@ export function useTickets() {
     fetchTickets();
   }, [fetchTickets]);
 
-  // Sync JIRA statuses in background after tickets load
+  // Sync JIRA statuses in background after tickets load (run once only)
+  const jiraSyncRan = useRef(false);
   useEffect(() => {
-    if (tickets.length > 0) {
+    if (tickets.length > 0 && !jiraSyncRan.current) {
+      jiraSyncRan.current = true;
       syncJiraStatuses(tickets).then(() => {
-        // Re-fetch to pick up updated jira_status values
         supabase
           .from('tickets')
           .select('*, reporter:app_users!reporter_id(*)')
@@ -92,7 +93,7 @@ export function useTickets() {
           });
       });
     }
-  }, [tickets.length]); // Only re-run when ticket count changes (i.e. initial load)
+  }, [tickets.length]);
 
   return { tickets, loading, error, refetch: fetchTickets, holdExpiredCount };
 }
@@ -104,8 +105,15 @@ async function updateSlaBreachCounts(tickets: Ticket[]) {
 
   for (const t of tickets) {
     if (t.status !== TicketStatus.IN_PRODUCT_SCOPE && t.status !== TicketStatus.IN_PROGRESS) continue;
-    const lastActivity = new Date(t.last_product_activity_at);
-    const daysSince = Math.floor((now.getTime() - lastActivity.getTime()) / (1000 * 60 * 60 * 24));
+    
+    // Use MAX of manual activity and JIRA status change (matching needsWeeklyUpdate logic)
+    const lastManualActivity = new Date(t.last_product_activity_at).getTime();
+    const lastJiraChange = t.last_jira_status_change_at
+      ? new Date(t.last_jira_status_change_at).getTime()
+      : 0;
+    const lastActivity = Math.max(lastManualActivity, lastJiraChange);
+    
+    const daysSince = Math.floor((now.getTime() - lastActivity) / (1000 * 60 * 60 * 24));
     if (daysSince < 7) continue;
 
     const expectedBreaches = Math.floor(daysSince / 7);

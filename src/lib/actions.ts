@@ -429,7 +429,7 @@ export async function batchSave(params: BatchSaveParams) {
   }
 
   // Create a single audit log entry with all changes described in comment
-  const auditComment = buildAuditComment(actions, comment, params);
+  const auditComment = buildAuditComment(actions, comment);
   const { error: logError } = await supabase
     .from('update_logs')
     .insert([{
@@ -444,7 +444,7 @@ export async function batchSave(params: BatchSaveParams) {
   if (logError) throw logError;
 }
 
-function buildAuditComment(actions: BatchAction[], comment: string, params: BatchSaveParams): string {
+function buildAuditComment(actions: BatchAction[], comment: string): string {
   const parts: string[] = [];
 
   for (const action of actions) {

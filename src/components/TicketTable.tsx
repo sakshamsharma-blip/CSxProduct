@@ -39,12 +39,10 @@ export function TicketTable({ tickets, searchQuery, onSearchChange, onSelectTick
     return acc;
   }, []).sort((a, b) => a.name.localeCompare(b.name));
 
-  const uniqueAssignees = tickets.reduce<{ id: string; name: string }[]>((acc, t) => {
-    if (t.assignee && t.assignee_id && !acc.some(r => r.id === t.assignee_id)) {
-      acc.push({ id: t.assignee_id, name: t.assignee.full_name });
-    }
-    return acc;
-  }, []).sort((a, b) => a.name.localeCompare(b.name));
+  const uniqueAssignees = allUsers
+    .filter(u => ['PRODUCT_LEAD', 'PRODUCT_TEAM', 'ADMIN'].includes(u.role))
+    .map(u => ({ id: u.id, name: u.full_name }))
+    .sort((a, b) => a.name.localeCompare(b.name));
 
   const searched = tickets.filter(t => {
     if (!searchQuery.trim()) return true;
