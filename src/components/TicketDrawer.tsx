@@ -11,6 +11,7 @@ import { useAuth } from '../hooks/useAuth';
 import { useTicketLogs, useAllUsers } from '../hooks/useTickets';
 import { getAvailableTransitions, canPostUpdate, canChangePriority, canChangeSprintStatus, canRevertLastAction, canChangeAssignee } from '../lib/stateMachine';
 import { transitionTicket, postProgressUpdate, changePriority, changeSprintStatus, changeAssignee, revertLastAction, addComment, batchSave, BatchAction } from '../lib/actions';
+import { extractJiraKey, getJiraUrl } from '../lib/jiraUtils';
 
 interface TicketDrawerProps {
   ticket: Ticket | null;
@@ -271,8 +272,8 @@ export function TicketDrawer({ ticket, onClose, onUpdate }: TicketDrawerProps) {
             <div>
               <span className="font-medium">JIRA:</span>{' '}
               {ticket.freshdesk_id ? (
-                <a href={ticket.freshdesk_id} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:text-blue-800 hover:underline">
-                  Open Ticket ↗
+                <a href={getJiraUrl(ticket.freshdesk_id)!} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:text-blue-800 hover:underline">
+                  {extractJiraKey(ticket.freshdesk_id) || 'Open Ticket'} ↗
                 </a>
               ) : '—'}
             </div>

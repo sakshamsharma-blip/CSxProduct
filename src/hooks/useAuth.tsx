@@ -77,37 +77,36 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // Look up by email or secondary_email matching the auth user's email.
     const { data: { user } } = await supabase.auth.getUser();
     if (user?.email) {
-      const { data: profileByEmail } = await supabase
+      // Try matching primary email
+      const { data: byPrimary } = await supabase
         .from('app_users')
         .select('*')
-        .or(`email.eq.${user.email},secondary_email.eq.${user.email}`)
+        .eq('email', user.email)
         .single();
 
-      if (profileByEmail) {
-        setAppUser(profileByEmail as AppUser);
+      if (byPrimary) {
+        setAppUser(byPrimary as AppUser);
         setLoading(false);
         return;
       }
 
-      // Last resort: create a new profile from auth metadata
-      const meta = user.user_metadata;
-      const { data: newProfile, error: insertError } = await supabase
+      // Try matching secondary email
+      const { data: bySecondary } = await supabase
         .from('app_users')
-        .upsert({
-          id: user.id,
-          full_name: meta?.full_name || user.email?.split('@')[0] || 'User',
-          email: user.email || '',
-          role: meta?.role || 'CS_MANAGER',
-        }, { onConflict: 'id' })
         .select('*')
+        .eq('secondary_email', user.email)
         .single();
 
-      if (!insertError && newProfile) {
-        setAppUser(newProfile as AppUser);
-      } else {
-        console.error('Error creating fallback profile:', insertError);
-        setAppUser(null);
+      if (bySecondary) {
+        setAppUser(bySecondary as AppUser);
+        setLoading(false);
+        return;
       }
+
+      // No profile found at all — do NOT create a new one.
+      // This means the user was not properly invited.
+      console.error('No app_users profile found for:', user.email);
+      setAppUser(null);
     } else {
       setAppUser(null);
     }

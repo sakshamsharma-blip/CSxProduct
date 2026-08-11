@@ -1,6 +1,7 @@
 import { supabase } from './supabase';
 import { TicketStatus, TicketSubType, Priority, SprintStatus, UserRole } from '../types';
 import { canTransition, canPostUpdate, canChangePriority, canChangeSprintStatus, canRevertLastAction, canChangeAssignee, isReopenTransition } from './stateMachine';
+import { normalizeJiraInput } from './jiraUtils';
 
 // ===== CREATE TICKET =====
 
@@ -25,7 +26,7 @@ export async function createTicket(params: CreateTicketParams) {
       description: params.description,
       sub_type: params.sub_type,
       priority: params.priority,
-      freshdesk_id: params.freshdesk_id || null,
+      freshdesk_id: normalizeJiraInput(params.freshdesk_id) || null,
       reporter_id: params.reporter_id,
       status: TicketStatus.NEW_ESCALATION,
       last_product_activity_at: new Date().toISOString(),

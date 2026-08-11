@@ -7,6 +7,7 @@ import {
   REOPENED_LABEL, REOPENED_COLOR
 } from '../types';
 import { needsWeeklyUpdate, isHoldExpired, getDaysSinceCreated, sortTickets, applyFilters, AttentionFlag, ticketNeedsAttention, useAllUsers, downloadExcel } from '../hooks/useTickets';
+import { extractJiraKey, getJiraUrl } from '../lib/jiraUtils';
 
 interface TicketTableProps {
   tickets: Ticket[];
@@ -15,13 +16,6 @@ interface TicketTableProps {
   onSelectTicket: (ticket: Ticket) => void;
   selectedTicketId: string | null;
   attentionFlags?: AttentionFlag[];
-}
-
-// Helper: extract JIRA issue key from URL
-function extractJiraKey(url: string | null): string | null {
-  if (!url) return null;
-  const match = url.match(/([A-Z][A-Z0-9]+-\d+)/);
-  return match ? match[1] : null;
 }
 
 export function TicketTable({ tickets, searchQuery, onSearchChange, onSelectTicket, selectedTicketId, attentionFlags = [] }: TicketTableProps) {
@@ -230,13 +224,14 @@ export function TicketTable({ tickets, searchQuery, onSearchChange, onSelectTick
                 const attention = ticketNeedsAttention(ticket, attentionFlags);
                 const attentionClass = attention === 'sla_breach' ? 'border-l-4 border-l-red-400 bg-red-50/40' : '';
                 const jiraKey = extractJiraKey(ticket.freshdesk_id);
+                const jiraUrl = getJiraUrl(ticket.freshdesk_id);
                 return (
                   <tr key={ticket.id} onClick={() => onSelectTicket(ticket)}
                     className={`cursor-pointer hover:bg-blue-50 transition-colors ${selectedTicketId === ticket.id ? 'bg-blue-50' : ''} ${ticket.is_reopened ? 'border-l-4 border-l-red-500' : ''} ${attentionClass}`}>
                     {/* ID / JIRA column */}
                     <td className="px-3 py-2 font-mono text-xs">
                       {jiraKey ? (
-                        <a href={ticket.freshdesk_id!} target="_blank" rel="noopener noreferrer"
+                        <a href={jiraUrl!} target="_blank" rel="noopener noreferrer"
                           onClick={e => e.stopPropagation()} className="text-blue-600 hover:text-blue-800 hover:underline font-medium">
                           {jiraKey}
                         </a>

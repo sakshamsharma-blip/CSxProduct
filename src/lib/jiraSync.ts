@@ -1,5 +1,6 @@
 import { supabase } from './supabase';
 import { Ticket } from '../types';
+import { normalizeJiraInput } from './jiraUtils';
 
 /**
  * For each ticket with a JIRA link, fetch current status from the jira-sync Edge Function.
@@ -9,7 +10,11 @@ import { Ticket } from '../types';
  * Called once on page load — does not block the UI.
  */
 export async function syncJiraStatuses(tickets: Ticket[]) {
-  const ticketsWithJira = tickets.filter(t => t.freshdesk_id && t.freshdesk_id.includes('atlassian'));
+  const ticketsWithJira = tickets.filter(t => {
+    if (!t.freshdesk_id) return false;
+    // Match full atlassian URLs or raw JIRA keys (e.g. EA-1234)
+    return t.freshdesk_id.includes('atlassian') || /^[A-Z][A-Z0-9]+-\d+$/i.test(t.freshdesk_id.trim());
+  });
 
   if (ticketsWithJira.length === 0) return;
 
@@ -22,7 +27,7 @@ export async function syncJiraStatuses(tickets: Ticket[]) {
       batch.map(async (ticket) => {
         try {
           const { data, error } = await supabase.functions.invoke('jira-sync', {
-            body: { jira_url: ticket.freshdesk_id },
+            body: { jira_url: normalizeJiraInput(ticket.freshdesk_id) },
           });
 
           if (error || !data || data.error) return;
