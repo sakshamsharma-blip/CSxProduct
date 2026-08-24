@@ -60,56 +60,38 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   async function fetchAppUser(userId: string) {
-    // First try: direct match by auth user ID (primary email login)
     const { data, error } = await supabase
       .from('app_users')
       .select('*')
       .eq('id', userId)
       .single();
 
-    if (!error && data) {
-      setAppUser(data as AppUser);
+    if (error || !data) {
+      console.error('No app_users profile found for id:', userId);
+      setAppUser(null);
       setLoading(false);
       return;
     }
 
-    // Second try: this might be a secondary email login.
-    // Look up by email or secondary_email matching the auth user's email.
-    const { data: { user } } = await supabase.auth.getUser();
-    if (user?.email) {
-      // Try matching primary email
-      const { data: byPrimary } = await supabase
+    // Secondary-domain logins are linked to their primary profile via
+    // primary_user_id. Always resolve to the canonical identity so role
+    // and ticket ownership are consistent no matter which email was used
+    // to sign in.
+    if (data.primary_user_id) {
+      const { data: primary, error: primaryError } = await supabase
         .from('app_users')
         .select('*')
-        .eq('email', user.email)
+        .eq('id', data.primary_user_id)
         .single();
 
-      if (byPrimary) {
-        setAppUser(byPrimary as AppUser);
+      if (!primaryError && primary) {
+        setAppUser(primary as AppUser);
         setLoading(false);
         return;
       }
-
-      // Try matching secondary email
-      const { data: bySecondary } = await supabase
-        .from('app_users')
-        .select('*')
-        .eq('secondary_email', user.email)
-        .single();
-
-      if (bySecondary) {
-        setAppUser(bySecondary as AppUser);
-        setLoading(false);
-        return;
-      }
-
-      // No profile found at all — do NOT create a new one.
-      // This means the user was not properly invited.
-      console.error('No app_users profile found for:', user.email);
-      setAppUser(null);
-    } else {
-      setAppUser(null);
     }
+
+    setAppUser(data as AppUser);
     setLoading(false);
   }
 

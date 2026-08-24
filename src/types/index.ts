@@ -64,6 +64,7 @@ export interface AppUser {
   secondary_email: string | null;
   role: UserRole;
   created_at: string;
+  primary_user_id?: string | null;
 }
 
 export interface Ticket {

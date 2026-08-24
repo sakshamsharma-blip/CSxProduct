@@ -115,7 +115,7 @@ Deno.serve(async (req) => {
 
     // Create secondary auth account (other domain) with same temp password
     if (secondaryEmail) {
-      const { error: secondaryError } = await supabaseAdmin.auth.admin.createUser({
+      const { data: secondaryUser, error: secondaryError } = await supabaseAdmin.auth.admin.createUser({
         email: secondaryEmail,
         password: tempPassword,
         email_confirm: true,
@@ -123,6 +123,19 @@ Deno.serve(async (req) => {
       })
       if (secondaryError) {
         console.warn(`Failed to create secondary account ${secondaryEmail}:`, secondaryError.message)
+      } else if (secondaryUser.user && newUser.user) {
+        // Link the secondary login to the primary profile (fallback in case
+        // the auto-trigger doesn't fire) so it shares the same role and
+        // ticket ownership as the primary account.
+        await supabaseAdmin
+          .from('app_users')
+          .upsert({
+            id: secondaryUser.user.id,
+            full_name,
+            email: secondaryEmail,
+            role,
+            primary_user_id: newUser.user.id,
+          }, { onConflict: 'id' })
       }
 
       // Send recovery email to secondary too

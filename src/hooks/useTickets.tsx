@@ -169,6 +169,7 @@ export function useAllUsers() {
     supabase
       .from('app_users')
       .select('id, full_name, role')
+      .is('primary_user_id', null)
       .order('full_name')
       .then(({ data }) => {
         if (data) setUsers(data);

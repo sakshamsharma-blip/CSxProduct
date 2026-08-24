@@ -33,6 +33,7 @@ export function UserManagement({ onBack }: UserManagementProps) {
     const { data } = await supabase
       .from('app_users')
       .select('*')
+      .is('primary_user_id', null)
       .order('created_at', { ascending: true });
     if (data) setUsers(data as AppUser[]);
     setLoading(false);
