@@ -31,18 +31,6 @@ function describeError(err: unknown, fallback: string): string {
   return fallback;
 }
 
-const TRANSITION_BUTTON_LABELS: Record<string, { label: string; color: string }> = {
-  RESOLVED_BY_CS: { label: 'Solve Internally', color: 'bg-emerald-600 hover:bg-emerald-700' },
-  PENDING_PROD_REVIEW: { label: 'Escalate to Product', color: 'bg-purple-600 hover:bg-purple-700' },
-  IN_PRODUCT_SCOPE: { label: 'Accept into Scope', color: 'bg-blue-600 hover:bg-blue-700' },
-  IN_PROGRESS: { label: 'Move to In Progress', color: 'bg-indigo-600 hover:bg-indigo-700' },
-  ON_HOLD_UNTIL: { label: 'Put on Hold', color: 'bg-orange-500 hover:bg-orange-600' },
-  RESOLVED: { label: 'Mark Resolved', color: 'bg-green-600 hover:bg-green-700' },
-  CLOSED: { label: 'Close Ticket', color: 'bg-gray-700 hover:bg-gray-800' },
-  NEW_ESCALATION: { label: 'Reopen', color: 'bg-red-500 hover:bg-red-600' },
-  RETURNED_TO_CS: { label: 'Send back to CS Lead', color: 'bg-amber-600 hover:bg-amber-700' },
-};
-
 export function TicketDrawer({ ticket, onClose, onUpdate }: TicketDrawerProps) {
   const { appUser } = useAuth();
   const { logs, loading: logsLoading, refetch: refetchLogs } = useTicketLogs(ticket?.id || null);
@@ -390,23 +378,24 @@ export function TicketDrawer({ ticket, onClose, onUpdate }: TicketDrawerProps) {
             </div>
           )}
 
-          {/* Action buttons */}
-          <div className="flex flex-wrap gap-2 mb-3">
-            {/* Status transitions */}
-            {availableTransitions.map(status => {
-              const btn = TRANSITION_BUTTON_LABELS[status] || { label: status, color: 'bg-blue-600 hover:bg-blue-700' };
-              const isQueued = pendingTransition === status;
-              return (
-                <button
-                  key={status}
-                  onClick={() => queueTransition(status)}
+          {/* Status change + post update */}
+          <div className="flex flex-wrap items-end gap-2 mb-3">
+            {availableTransitions.length > 0 && (
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">Move to stage</label>
+                <select
+                  value={pendingTransition || ''}
+                  onChange={e => queueTransition(e.target.value as TicketStatus)}
                   disabled={actionLoading}
-                  className={`px-3 py-1.5 rounded-md text-xs font-medium text-white transition-colors disabled:opacity-50 ${btn.color} ${isQueued ? 'ring-2 ring-offset-1 ring-blue-400' : ''}`}
+                  className="px-3 py-1.5 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
-                  {btn.label}
-                </button>
-              );
-            })}
+                  <option value="" disabled>Select a stage...</option>
+                  {availableTransitions.map(status => (
+                    <option key={status} value={status}>{STATUS_LABELS[status]}</option>
+                  ))}
+                </select>
+              </div>
+            )}
 
             {/* Post weekly update */}
             {showPostUpdate && (
