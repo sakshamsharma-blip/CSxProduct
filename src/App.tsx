@@ -5,6 +5,7 @@ import { SetPasswordPage } from './pages/SetPasswordPage';
 import { Dashboard } from './pages/Dashboard';
 import { AnalyticsPage } from './pages/AnalyticsPage';
 import { UserManagement } from './pages/UserManagement';
+import { OAuthConsentPage, OAUTH_CONSENT_PATH } from './pages/OAuthConsentPage';
 import { ChangePasswordModal } from './components/ChangePasswordModal';
 import { UserRole } from './types';
 
@@ -30,6 +31,12 @@ function AppContent() {
   // Force password set on recovery (forgot password or new invite)
   if (isRecoverySession) {
     return <SetPasswordPage onComplete={clearRecoveryState} />;
+  }
+
+  // "Allow Claude to use Flow as you?" — reached from an OAuth sign-in
+  // (e.g. connecting the Flow MCP server in Claude). Login comes first above.
+  if (window.location.pathname === OAUTH_CONSENT_PATH) {
+    return <OAuthConsentPage />;
   }
 
   const canViewAnalytics = appUser?.role === UserRole.CS_LEAD || appUser?.role === UserRole.PRODUCT_LEAD || appUser?.role === UserRole.PRODUCT_TEAM || appUser?.role === UserRole.ADMIN;

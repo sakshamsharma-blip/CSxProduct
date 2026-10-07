@@ -62,6 +62,10 @@ The auto-trigger will create the app_users profile automatically on signup.
    - `VITE_SUPABASE_ANON_KEY`
 4. Deploy. Done.
 
+## Using Flow from Claude (MCP)
+
+Flow has a remote MCP server so the team can search, create and update tickets by talking to Claude, with each person's own permissions. Setup and tool list: [docs/MCP.md](docs/MCP.md).
+
 ## Architecture
 
 - **Frontend:** React + TypeScript + Tailwind CSS + Vite
