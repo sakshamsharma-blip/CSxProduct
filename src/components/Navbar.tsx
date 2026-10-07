@@ -6,12 +6,13 @@ import { BrandLogo } from './BrandLogo';
 interface NavbarProps {
   onNewRequest: () => void;
   onAnalytics: () => void;
+  onActivity: () => void;
   onChangePassword: () => void;
   onManageUsers: () => void;
   currentPage: 'dashboard' | 'analytics' | 'users';
 }
 
-export function Navbar({ onNewRequest, onAnalytics, onChangePassword, onManageUsers, currentPage }: NavbarProps) {
+export function Navbar({ onNewRequest, onAnalytics, onActivity, onChangePassword, onManageUsers, currentPage }: NavbarProps) {
   const { appUser, signOut } = useAuth();
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -42,6 +43,19 @@ export function Navbar({ onNewRequest, onAnalytics, onChangePassword, onManageUs
 
         {/* Right: Actions + User Info */}
         <div className="flex items-center gap-4">
+          {/* Recent Activity Button (everyone; the feed follows each role's visibility) */}
+          {currentPage === 'dashboard' && (
+            <button
+              onClick={onActivity}
+              className="text-gray-600 hover:text-blue-600 px-3 py-2 rounded-md text-sm font-medium transition-colors flex items-center gap-1"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clipRule="evenodd" />
+              </svg>
+              Activity
+            </button>
+          )}
+
           {/* Analytics Button */}
           {canViewAnalytics && currentPage === 'dashboard' && (
             <button

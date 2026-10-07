@@ -11,10 +11,11 @@ import { Ticket, QueueTab, UserRole } from '../types';
 interface DashboardProps {
   onNavigateAnalytics: () => void;
   onNavigateUsers: () => void;
+  onNavigateActivity: () => void;
   onChangePassword: () => void;
 }
 
-export function Dashboard({ onNavigateAnalytics, onNavigateUsers, onChangePassword }: DashboardProps) {
+export function Dashboard({ onNavigateAnalytics, onNavigateUsers, onNavigateActivity, onChangePassword }: DashboardProps) {
   const { tickets, loading, refetch, holdExpiredCount } = useTickets();
   const { appUser } = useAuth();
   const [activeTab, setActiveTab] = useState<QueueTab>('all');
@@ -73,6 +74,7 @@ export function Dashboard({ onNavigateAnalytics, onNavigateUsers, onChangePasswo
       <Navbar
         onNewRequest={() => setShowNewModal(true)}
         onAnalytics={onNavigateAnalytics}
+        onActivity={onNavigateActivity}
         onChangePassword={onChangePassword}
         onManageUsers={onNavigateUsers}
         currentPage="dashboard"

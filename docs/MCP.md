@@ -39,6 +39,7 @@ Supabase Auth OAuth 2.1 server ──▶ Flow web app /oauth/consent ──▶ P
 | `list_tickets` | Search/filter tickets (queue = web-app tab, priority, type, client, creator, assignee, sprint, reopened, weekly update overdue) | Everyone (sees what they see in the app) |
 | `get_ticket` | One ticket: details, full timeline, and **which actions you're allowed to take on it** | Everyone |
 | `needs_attention` | Weekly update overdue, hold date passed, Critical/High waiting for review, returned to CS, oldest open | Everyone |
+| `recent_activity` | One feed of every comment, update and stage change (plus new tickets) in a time window, with a summary. Same data as the web app's **Activity** page | Everyone (only tickets they can see) |
 | `get_analytics` | Same numbers as the Analytics page for a period (this week / month to date / year to date / all time / custom dates) | CS Lead, Product Lead, Product Team, Admin |
 | `list_product_users` | People a ticket can be assigned to | Everyone |
 | `create_ticket` | New escalation in "New Escalation" | CS Manager, CS Lead, Admin |
