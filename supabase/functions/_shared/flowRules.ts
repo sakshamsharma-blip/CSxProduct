@@ -177,6 +177,18 @@ export function canChangeAssignee(userRole: UserRole): boolean {
   return PRODUCT_ROLES.includes(userRole);
 }
 
+// ===== Editing a ticket's details (MCP only — the web app has no edit form yet) =====
+// Subject, description, lab name, client ID: the person who raised it, CS Lead, Admin.
+// Jira / Freshdesk link: the same, plus Product Lead and Product Team (they own the Jira work).
+// The database's update policy allows all of these roles; these checks narrow it.
+export function canEditDetails(userRole: UserRole, userId: string, reporterId: string): boolean {
+  return userId === reporterId || userRole === UserRole.CS_LEAD || userRole === UserRole.ADMIN;
+}
+
+export function canLinkJira(userRole: UserRole, userId: string, reporterId: string): boolean {
+  return canEditDetails(userRole, userId, reporterId) || PRODUCT_ROLES.includes(userRole);
+}
+
 export function isReopenTransition(from: TicketStatus, to: TicketStatus): boolean {
   return (from === TicketStatus.RESOLVED || from === TicketStatus.RESOLVED_BY_CS) &&
     to === TicketStatus.NEW_ESCALATION;

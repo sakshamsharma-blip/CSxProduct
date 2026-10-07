@@ -46,6 +46,8 @@ Supabase Auth OAuth 2.1 server ──▶ Flow web app /oauth/consent ──▶ P
 | `add_comment` | Comment on the timeline | Everyone (on tickets they can see) |
 | `post_weekly_update` | Progress update; resets the 7-day weekly-update clock | CS Lead, Product Lead, Product Team, Admin |
 | `update_ticket` | Stage / priority / sprint / assignee in one save, like "Save All Changes" | Same rules as the web app |
+| `edit_ticket_details` | Fix subject, description, lab name or client ID; old → new is written to the timeline | Ticket creator, CS Lead, Admin |
+| `link_jira` | Add, replace or remove the Jira / Freshdesk link (a key like EA-1234 or a URL) | Ticket creator, CS Lead, Product Lead, Product Team, Admin |
 
 Not included on purpose: **Revert last action**, user management, and anything that bypasses roles.
 
