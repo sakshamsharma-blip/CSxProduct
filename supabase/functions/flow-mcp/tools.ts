@@ -13,7 +13,7 @@ import {
   getAvailableTransitions, canTransition, canPostUpdate, canChangePriority, canChangeSprintStatus,
   canChangeAssignee, isReopenTransition, PRODUCT_ACTIVITY_STATUSES, SPRINT_CLEARING_STATUSES,
   needsWeeklyUpdate, isHoldExpired, lastActivityAt, daysBetween, normalizeJiraInput,
-  getDateRange, hoursBetween, formatTAT, isTicketVisible, type TimePeriod,
+  getDateRange, hoursBetween, formatTAT, isTicketVisible, canEditDetails, canLinkJira, extractJiraKey, type TimePeriod,
 } from '../_shared/flowRules.ts';
 import {
   type Ctx, type TicketRow, type LogRow, UserFacingError, dbError, fetchAll,
@@ -88,6 +88,8 @@ function allowedActions(ctx: Ctx, t: TicketRow) {
     can_change_sprint_status: canChangeSprintStatus(t.status, role),
     can_change_assignee: canChangeAssignee(role),
     can_post_weekly_update: canPostUpdate(t.status, role),
+    can_edit_details: canEditDetails(role, id, t.reporter_id),
+    can_link_jira: canLinkJira(role, id, t.reporter_id),
     can_comment: true,
   };
 }
@@ -540,6 +542,101 @@ export function registerTools(server: McpServer, ctx: Ctx) {
       changes: parts,
       now: after ? ticketSummary(after) : 'Saved. (The ticket is no longer visible to your role at its new stage.)',
     });
+  });
+
+  // --------------------------------------------------- edit_ticket_details
+  addTool(server, 'edit_ticket_details', {
+    title: 'Edit a Flow ticket\'s details',
+    description:
+      'Fixes the details of an existing ticket: subject, description, lab / client name and client ID. ' +
+      'Does not change the stage (use update_ticket) or the Jira link (use link_jira). ' +
+      'Allowed for the person who raised the ticket, CS Lead and Admin. The old and new values are written to the ticket timeline. ' +
+      'Confirm the exact new text with the user before calling.',
+    inputSchema: {
+      ticket_id: ticketIdField,
+      subject: z.string().min(1).max(300).optional().describe('New subject (short title)'),
+      description: z.string().optional().describe('New full description (replaces the old one)'),
+      lab_name: z.string().min(1).optional().describe('New lab / client name'),
+      client_id: z.string().min(1).optional().describe('New client ID'),
+      reason: z.string().optional().describe('Why it changed, e.g. "wrong client ID"'),
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+  }, async (a) => {
+    const t = await findTicket(ctx, a.ticket_id);
+    if (!canEditDetails(me.role, me.id, t.reporter_id)) {
+      throw new UserFacingError(`Only the person who raised ${t.custom_id}, a CS Lead or an Admin can edit its details.`);
+    }
+    const update: Record<string, unknown> = {};
+    const parts: string[] = [];
+    const quote = (v: string) => `"${v.length > 80 ? v.slice(0, 79) + '…' : v}"`;
+    const field = (key: 'subject' | 'lab_name' | 'client_id', label: string, value: string | undefined) => {
+      if (value === undefined) return;
+      const v = value.trim();
+      if (!v) throw new UserFacingError(`${label} can't be empty.`);
+      if (v === (t[key] ?? '').trim()) return;
+      update[key] = v;
+      parts.push(`${label}: ${quote(t[key] || '—')} → ${quote(v)}`);
+    };
+    field('subject', 'Subject', a.subject);
+    field('lab_name', 'Lab / client', a.lab_name);
+    field('client_id', 'Client ID', a.client_id);
+    if (a.description !== undefined && a.description.trim() !== (t.description ?? '').trim()) {
+      update.description = a.description.trim();
+      parts.push('Description updated');
+    }
+    if (parts.length === 0) {
+      throw new UserFacingError('Nothing to change — the ticket already has those details.');
+    }
+    await updateTicketRow(ctx, t, update, `edit ${t.custom_id}`);
+    const reason = (a.reason ?? '').trim();
+    await insertLog(ctx, t.id, t.status, t.status, tagged(`Details edited: ${parts.join(' | ')}${reason ? ` | ${reason}` : ''}`), null);
+    const after = await findTicket(ctx, t.custom_id);
+    return ok({ ticket: t.custom_id, changes: parts, now: ticketDetail(after) });
+  });
+
+  // ------------------------------------------------------------- link_jira
+  addTool(server, 'link_jira', {
+    title: 'Link a Jira ticket to a Flow ticket',
+    description:
+      'Sets, replaces or removes the Jira (or Freshdesk) link on an existing Flow ticket. Accepts a Jira key like EA-1234, ' +
+      'a Jira or Freshdesk URL, or "none" to remove the link. Jira keys become crelio.atlassian.net links, the same as in the web app. ' +
+      'Allowed for the person who raised the ticket, CS Lead, Product Lead, Product Team and Admin. The change is written to the timeline; ' +
+      'the Jira status column refreshes the next time someone opens the Flow web app.',
+    inputSchema: {
+      ticket_id: ticketIdField,
+      jira: z.string().min(1).describe('Jira key (EA-1234), Jira/Freshdesk URL, or "none" to remove the link'),
+      reason: z.string().optional().describe('Optional note for the timeline'),
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+  }, async (a) => {
+    const t = await findTicket(ctx, a.ticket_id);
+    if (!canLinkJira(me.role, me.id, t.reporter_id)) {
+      throw new UserFacingError(`Only the person who raised ${t.custom_id}, a CS Lead, Product or an Admin can change its Jira link.`);
+    }
+    const raw = a.jira.trim();
+    const remove = /^(none|remove|unlink|-)$/i.test(raw);
+    let link: string | null = null;
+    if (!remove) {
+      const isUrl = /^https?:\/\//i.test(raw);
+      if (!isUrl && !/^[A-Z][A-Z0-9]+-\d+$/i.test(raw)) {
+        throw new UserFacingError(`"${raw}" isn't a Jira key (like EA-1234) or a link. Use a key, a full Jira/Freshdesk URL, or "none".`);
+      }
+      link = normalizeJiraInput(raw);
+    }
+    const label = (v: string | null) => (v ? (extractJiraKey(v) ?? v) : 'none');
+    if ((link ?? null) === (t.freshdesk_id ?? null)) {
+      throw new UserFacingError(`${t.custom_id} is already linked to ${label(link)}.`);
+    }
+    await updateTicketRow(ctx, t, {
+      freshdesk_id: link,
+      // The stored Jira status belonged to the old link; the web app's sync fills in the new one.
+      jira_status: null,
+      last_jira_status_change_at: null,
+    }, `change the Jira link on ${t.custom_id}`);
+    const reason = (a.reason ?? '').trim();
+    const what = link ? (t.freshdesk_id ? `Jira link changed: ${label(t.freshdesk_id)} → ${label(link)}` : `Jira linked: ${label(link)}`) : `Jira link removed (was ${label(t.freshdesk_id)})`;
+    await insertLog(ctx, t.id, t.status, t.status, tagged(`${what}${reason ? ` | ${reason}` : ''}`), null);
+    return ok({ ticket: t.custom_id, change: what, jira_link: link });
   });
 }
 
