@@ -13,11 +13,11 @@ import {
   getAvailableTransitions, canTransition, canPostUpdate, canChangePriority, canChangeSprintStatus,
   canChangeAssignee, isReopenTransition, PRODUCT_ACTIVITY_STATUSES, SPRINT_CLEARING_STATUSES,
   needsWeeklyUpdate, isHoldExpired, lastActivityAt, daysBetween, normalizeJiraInput,
-  getDateRange, hoursBetween, formatTAT, type TimePeriod,
+  getDateRange, hoursBetween, formatTAT, isTicketVisible, type TimePeriod,
 } from '../_shared/flowRules.ts';
 import {
   type Ctx, type TicketRow, type LogRow, UserFacingError, dbError, fetchAll,
-  loadAllTickets, loadVisibleTickets, findTicket, loadTimeline, loadProductUsers,
+  loadAllTickets, loadVisibleTickets, findTicket, loadTimeline, loadProductUsers, loadActivity,
   ticketSummary, ticketDetail, timelineEntry, stageLabel,
 } from './data.ts';
 
@@ -228,6 +228,80 @@ export function registerTools(server: McpServer, ctx: Ctx) {
       returned_to_cs: rows.filter(t => t.status === TicketStatus.RETURNED_TO_CS).map(t => ticketSummary(t, now)),
       oldest_open: [...open].sort((x, y) => x.created_at.localeCompare(y.created_at)).slice(0, 10).map(t => ticketSummary(t, now)),
       note: 'Expired holds are moved back to Pending Product Review automatically the next time someone opens the Flow web app.',
+    });
+  });
+
+  // ------------------------------------------------------- recent_activity
+  addTool(server, 'recent_activity', {
+    title: 'Recent activity across Flow',
+    description:
+      'One feed of everything that happened on Flow tickets in a time window: every comment, weekly update, stage change, ' +
+      'priority/sprint/assignee change and Jira status sync, newest first, plus tickets created in that window and a short summary. ' +
+      'Use it for "what happened / what changed / give me updates" questions. Only tickets the user can see are included. ' +
+      'Default window: the last 2 days.',
+    inputSchema: {
+      days: z.number().int().min(1).max(90).optional().describe('Look back this many days from now (default 2). Ignored when since is given'),
+      since: isoDay.optional().describe('Start date YYYY-MM-DD (India time, inclusive), e.g. last Monday'),
+      until: isoDay.optional().describe('End date YYYY-MM-DD (inclusive). Default: now'),
+      only_stage_changes: z.boolean().optional().describe('Only entries where the stage changed'),
+      tickets: z.enum(['all', 'mine']).optional().describe('"mine" = tickets you created or are assigned to. Default: all you can see'),
+      by: z.string().optional().describe('Only entries written by this person: "me", or part of a name'),
+      client_id: z.string().optional().describe('Only tickets of this client ID'),
+      limit: z.number().int().min(1).max(500).optional().describe('Max entries returned (default 100); the summary always counts everything'),
+    },
+    annotations: { readOnlyHint: true, openWorldHint: false },
+  }, async (a) => {
+    const now = new Date();
+    const from = a.since ? getDateRange('custom', a.since, undefined, now).start : new Date(now.getTime() - (a.days ?? 2) * 86_400_000);
+    const to = a.until ? getDateRange('custom', undefined, a.until, now).end : now;
+    if (from > to) throw new UserFacingError('The start date is after the end date.');
+
+    const [logs, tickets] = await Promise.all([loadActivity(ctx.db, from, to), loadVisibleTickets(ctx)]);
+    const mine = (t: { reporter_id: string; assignee_id: string | null }) => t.reporter_id === me.id || t.assignee_id === me.id;
+    const clientMatch = (cid: string) => !a.client_id || cid.trim().toLowerCase() === a.client_id.trim().toLowerCase();
+
+    let entries = logs.filter(l => l.ticket && isTicketVisible(l.ticket, me.role, me.id));
+    if (a.tickets === 'mine') entries = entries.filter(l => mine(l.ticket!));
+    if (a.client_id) entries = entries.filter(l => clientMatch(l.ticket!.client_id));
+    if (a.only_stage_changes) entries = entries.filter(l => l.previous_status !== l.new_status);
+    if (a.by) {
+      const q = a.by.trim().toLowerCase();
+      entries = entries.filter(l => q === 'me' ? l.author_id === me.id : (l.author?.full_name ?? '').toLowerCase().includes(q));
+    }
+
+    const created = tickets.filter(t => {
+      const c = new Date(t.created_at).getTime();
+      return c >= from.getTime() && c <= to.getTime() && (a.tickets !== 'mine' || mine(t)) && clientMatch(t.client_id)
+        && (!a.by || (a.by.trim().toLowerCase() === 'me' ? t.reporter_id === me.id : (t.reporter?.full_name ?? '').toLowerCase().includes(a.by.trim().toLowerCase())));
+    }).sort((x, y) => y.created_at.localeCompare(x.created_at));
+
+    const moves = entries.filter(l => l.previous_status !== l.new_status);
+    const movedTo: Record<string, number> = {};
+    for (const l of moves) movedTo[STATUS_LABELS[l.new_status]] = (movedTo[STATUS_LABELS[l.new_status]] ?? 0) + 1;
+    const people: Record<string, number> = {};
+    for (const l of entries) { const n = l.author?.full_name ?? 'Unknown'; people[n] = (people[n] ?? 0) + 1; }
+
+    const limit = a.limit ?? 100;
+    const newestFirst = [...entries].reverse();
+    return ok({
+      window: { from: from.toISOString(), to: to.toISOString() },
+      summary: {
+        updates: entries.length,
+        tickets_touched: new Set(entries.map(l => l.ticket_id)).size,
+        new_tickets: created.length,
+        stage_changes: moves.length,
+        moved_to: movedTo,
+        by_person: people,
+      },
+      new_tickets: created.map(t => ({ id: t.custom_id, lab: t.lab_name, subject: t.subject, priority: t.priority, created_by: t.reporter?.full_name ?? null, at: t.created_at })),
+      showing: Math.min(limit, newestFirst.length),
+      activity: newestFirst.slice(0, limit).map(l => ({
+        ticket: l.ticket!.custom_id,
+        lab: l.ticket!.lab_name,
+        subject: l.ticket!.subject,
+        current_stage: stageLabel(l.ticket!),
+        ...timelineEntry(l),
+      })),
     });
   });
 

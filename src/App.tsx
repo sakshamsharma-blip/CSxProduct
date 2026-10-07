@@ -5,11 +5,12 @@ import { SetPasswordPage } from './pages/SetPasswordPage';
 import { Dashboard } from './pages/Dashboard';
 import { AnalyticsPage } from './pages/AnalyticsPage';
 import { UserManagement } from './pages/UserManagement';
+import { RecentActivityPage } from './pages/RecentActivityPage';
 import { OAuthConsentPage, OAUTH_CONSENT_PATH } from './pages/OAuthConsentPage';
 import { ChangePasswordModal } from './components/ChangePasswordModal';
 import { UserRole } from './types';
 
-type Page = 'dashboard' | 'analytics' | 'users';
+type Page = 'dashboard' | 'analytics' | 'users' | 'activity';
 
 function AppContent() {
   const { session, appUser, loading, isRecoverySession, clearRecoveryState } = useAuth();
@@ -51,6 +52,15 @@ function AppContent() {
     );
   }
 
+  if (currentPage === 'activity') {
+    return (
+      <>
+        <RecentActivityPage onBack={() => setCurrentPage('dashboard')} />
+        <ChangePasswordModal isOpen={showChangePassword} onClose={() => setShowChangePassword(false)} />
+      </>
+    );
+  }
+
   if (currentPage === 'users' && canManageUsers) {
     return (
       <>
@@ -65,6 +75,7 @@ function AppContent() {
       <Dashboard
         onNavigateAnalytics={() => setCurrentPage('analytics')}
         onNavigateUsers={() => setCurrentPage('users')}
+        onNavigateActivity={() => setCurrentPage('activity')}
         onChangePassword={() => setShowChangePassword(true)}
       />
       <ChangePasswordModal isOpen={showChangePassword} onClose={() => setShowChangePassword(false)} />

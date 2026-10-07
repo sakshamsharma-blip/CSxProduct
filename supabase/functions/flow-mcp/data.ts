@@ -137,6 +137,24 @@ export async function loadTimeline(db: SupabaseClient, ticketId: string): Promis
   );
 }
 
+export interface ActivityRow extends LogRow {
+  ticket: Pick<TicketRow, 'id' | 'custom_id' | 'lab_name' | 'client_id' | 'subject' | 'status' | 'is_reopened' | 'reporter_id' | 'assignee_id'> | null;
+}
+
+/** Timeline entries across all tickets in [from, to], oldest first. */
+export async function loadActivity(db: SupabaseClient, from: Date, to: Date): Promise<ActivityRow[]> {
+  return fetchAll<ActivityRow>(() =>
+    db.from('update_logs')
+      .select('id, ticket_id, author_id, comment, previous_status, new_status, hold_target_date, created_at, ' +
+        'author:app_users!author_id(full_name, role), ' +
+        'ticket:tickets!ticket_id(id, custom_id, lab_name, client_id, subject, status, is_reopened, reporter_id, assignee_id)')
+      .gte('created_at', from.toISOString())
+      .lte('created_at', to.toISOString())
+      .order('created_at', { ascending: true })
+      .order('id')
+  );
+}
+
 export async function loadProductUsers(db: SupabaseClient): Promise<{ id: string; full_name: string; email: string; role: UserRole }[]> {
   const { data, error } = await db
     .from('app_users')
