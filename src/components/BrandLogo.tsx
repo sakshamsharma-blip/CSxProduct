@@ -38,7 +38,12 @@ export function BrandLogo({ variant = 'full', size = 'md', productName }: BrandL
       <img
         src="/crelio-logo.png"
         alt="CrelioHealth"
-        className={`${LOGO_HEIGHTS[size]} w-auto`}
+        className={`${LOGO_HEIGHTS[size]} w-auto dark:hidden`}
+      />
+      <img
+        src="/crelio-logo-dark.png"
+        alt="CrelioHealth"
+        className={`${LOGO_HEIGHTS[size]} w-auto hidden dark:block`}
       />
       {productName && (
         <span className={`${PRODUCT_SIZES[size]} font-semibold text-gray-400`}>

@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 import { useAuth } from '../hooks/useAuth';
 import { UserRole, ROLE_LABELS } from '../types';
 import { BrandLogo } from './BrandLogo';
+import { ThemeToggle } from './ThemeToggle';
 
 interface NavbarProps {
   onNewRequest: () => void;
@@ -78,6 +79,9 @@ export function Navbar({ onNewRequest, onAnalytics, onActivity, onChangePassword
               <span className="text-lg leading-none">+</span> New Request
             </button>
           )}
+
+          {/* Display mode: Light / Dark / System */}
+          <ThemeToggle />
 
           {/* User Menu */}
           <div className="relative pl-4 border-l border-gray-200" ref={menuRef}>

@@ -1,0 +1,171 @@
+/*
+ * Flow dark mode.
+ *
+ * The app is styled with plain light Tailwind classes (bg-white, text-gray-900 …).
+ * Instead of adding a dark: variant to every element, this file remaps those
+ * classes when <html> has the "dark" class (set by ThemeProvider / index.html).
+ * `.dark .x` beats `.x` on specificity, so light mode is untouched.
+ *
+ * Adding new UI? Use the same light classes as the rest of the app and it will
+ * pick up dark mode automatically. If you introduce a colour class not covered
+ * here, add a matching rule below (or use a Tailwind dark: variant inline).
+ */
+
+.dark {
+  --d-page: #0f1115;
+  --d-surface: #171a21;
+  --d-surface-2: #1e222b;
+  --d-surface-3: #282d38;
+  --d-border-soft: #232731;
+  --d-border: #2c313c;
+  --d-border-strong: #3a404d;
+
+  --d-text-900: #e9ebef;
+  --d-text-800: #dadde3;
+  --d-text-700: #c3c8d1;
+  --d-text-600: #a6acb7;
+  --d-text-500: #8b919c;
+  --d-text-400: #6d7380;
+}
+
+/* ---------- Base ---------- */
+.dark body {
+  background-color: var(--d-page);
+  color: var(--d-text-900);
+}
+/* Default border colour (Tailwind preflight uses gray-200). Zero specificity so utilities still win. */
+:where(.dark) *,
+:where(.dark) ::before,
+:where(.dark) ::after {
+  border-color: var(--d-border);
+}
+.dark input,
+.dark select,
+.dark textarea {
+  background-color: var(--d-surface);
+  color: var(--d-text-900);
+}
+.dark input[type='checkbox'],
+.dark input[type='radio'] {
+  background-color: transparent;
+}
+.dark input::placeholder,
+.dark textarea::placeholder {
+  color: var(--d-text-400);
+}
+.dark option {
+  background-color: var(--d-surface);
+  color: var(--d-text-900);
+}
+
+/* ---------- Backgrounds ---------- */
+.dark .bg-canvas,
+.dark .bg-gray-50 { background-color: var(--d-page); }
+.dark .bg-white { background-color: var(--d-surface); }
+.dark .bg-gray-100 { background-color: var(--d-surface-2); }
+.dark .bg-gray-200 { background-color: var(--d-surface-3); }
+.dark .bg-gray-600 { background-color: #4b5262; }
+.dark .bg-gray-700 { background-color: #3d4350; }
+.dark .bg-black\/40 { background-color: rgb(0 0 0 / 0.6); }
+
+/* Tinted panels (bg-*-50) */
+.dark .bg-blue-50 { background-color: rgb(59 130 246 / 0.12); }
+.dark .bg-red-50 { background-color: rgb(239 68 68 / 0.12); }
+.dark .bg-red-50\/40 { background-color: rgb(239 68 68 / 0.07); }
+.dark .bg-orange-50 { background-color: rgb(249 115 22 / 0.12); }
+.dark .bg-green-50 { background-color: rgb(34 197 94 / 0.12); }
+/* Login / set-password pages use a full-screen blue-50 */
+.dark .min-h-screen.bg-blue-50 { background-color: var(--d-page); }
+
+/* Badges (bg-*-100 + text-*-800) */
+.dark .bg-red-100 { background-color: rgb(239 68 68 / 0.18); }
+.dark .bg-orange-100 { background-color: rgb(249 115 22 / 0.18); }
+.dark .bg-amber-100 { background-color: rgb(245 158 11 / 0.18); }
+.dark .bg-yellow-100 { background-color: rgb(234 179 8 / 0.18); }
+.dark .bg-green-100 { background-color: rgb(34 197 94 / 0.18); }
+.dark .bg-emerald-100 { background-color: rgb(16 185 129 / 0.18); }
+.dark .bg-teal-100 { background-color: rgb(20 184 166 / 0.18); }
+.dark .bg-blue-100 { background-color: rgb(59 130 246 / 0.2); }
+.dark .bg-indigo-100 { background-color: rgb(99 102 241 / 0.2); }
+.dark .bg-violet-100 { background-color: rgb(139 92 246 / 0.2); }
+.dark .bg-purple-100 { background-color: rgb(168 85 247 / 0.2); }
+
+/* ---------- Text ---------- */
+.dark .text-gray-900 { color: var(--d-text-900); }
+.dark .text-gray-800 { color: var(--d-text-800); }
+.dark .text-gray-700 { color: var(--d-text-700); }
+.dark .text-gray-600 { color: var(--d-text-600); }
+.dark .text-gray-500 { color: var(--d-text-500); }
+.dark .text-gray-400 { color: var(--d-text-400); }
+.dark .text-gray-300 { color: #4f5563; }
+
+.dark .text-blue-600 { color: #60a5fa; }
+.dark .text-blue-700 { color: #7cb3fb; }
+.dark .text-blue-800 { color: #93c5fd; }
+.dark .text-red-400 { color: #f87171; }
+.dark .text-red-500 { color: #f87171; }
+.dark .text-red-600 { color: #f87171; }
+.dark .text-red-700 { color: #fca5a5; }
+.dark .text-red-800 { color: #fca5a5; }
+.dark .text-green-600 { color: #4ade80; }
+.dark .text-green-800 { color: #86efac; }
+.dark .text-emerald-800 { color: #6ee7b7; }
+.dark .text-teal-800 { color: #5eead4; }
+.dark .text-orange-500 { color: #fb923c; }
+.dark .text-orange-600 { color: #fb923c; }
+.dark .text-orange-700 { color: #fdba74; }
+.dark .text-orange-800 { color: #fdba74; }
+.dark .text-amber-800 { color: #fcd34d; }
+.dark .text-yellow-800 { color: #fde047; }
+.dark .text-indigo-800 { color: #a5b4fc; }
+.dark .text-violet-800 { color: #c4b5fd; }
+.dark .text-purple-800 { color: #d8b4fe; }
+
+/* ---------- Borders & dividers ---------- */
+.dark .border-gray-100 { border-color: var(--d-border-soft); }
+.dark .border-gray-200 { border-color: var(--d-border); }
+.dark .border-gray-300 { border-color: var(--d-border-strong); }
+.dark .border-blue-200 { border-color: rgb(59 130 246 / 0.35); }
+.dark .border-orange-200 { border-color: rgb(249 115 22 / 0.35); }
+.dark .border-red-200 { border-color: rgb(239 68 68 / 0.35); }
+.dark .border-green-200 { border-color: rgb(34 197 94 / 0.35); }
+.dark .divide-gray-100 > :not([hidden]) ~ :not([hidden]) { border-color: var(--d-border-soft); }
+.dark .divide-gray-200 > :not([hidden]) ~ :not([hidden]) { border-color: var(--d-border); }
+
+/* ---------- Hover states ---------- */
+.dark .hover\:bg-gray-50:hover { background-color: var(--d-surface-2); }
+.dark .hover\:bg-gray-100:hover { background-color: var(--d-surface-3); }
+.dark .hover\:bg-blue-50:hover { background-color: rgb(59 130 246 / 0.14); }
+.dark .hover\:bg-blue-50\/40:hover { background-color: rgb(59 130 246 / 0.08); }
+.dark .hover\:bg-red-50:hover { background-color: rgb(239 68 68 / 0.14); }
+.dark .hover\:text-gray-600:hover { color: var(--d-text-700); }
+.dark .hover\:text-gray-700:hover { color: var(--d-text-800); }
+.dark .hover\:text-gray-900:hover { color: #ffffff; }
+.dark .hover\:text-blue-600:hover { color: #7cb3fb; }
+.dark .hover\:text-blue-800:hover { color: #93c5fd; }
+.dark .hover\:border-gray-300:hover { border-color: var(--d-border-strong); }
+
+/* ---------- Shadows (soft grey shadows vanish on dark; deepen them) ---------- */
+.dark .shadow-sm { box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.4); }
+.dark .shadow-md { box-shadow: 0 4px 10px -2px rgb(0 0 0 / 0.5); }
+.dark .shadow-lg { box-shadow: 0 10px 20px -5px rgb(0 0 0 / 0.55); }
+.dark .shadow-xl { box-shadow: 0 20px 30px -8px rgb(0 0 0 / 0.6); }
+
+/* ---------- Theme toggle active pill ---------- */
+.dark .theme-toggle-active { background-color: var(--d-surface-3); color: var(--d-text-900); }
+
+/* ---------- Charts (Recharts on the Analytics page) ---------- */
+.dark .recharts-cartesian-grid line { stroke: var(--d-border); }
+.dark .recharts-cartesian-axis-line,
+.dark .recharts-cartesian-axis-tick-line { stroke: var(--d-border-strong); }
+.dark .recharts-text,
+.dark .recharts-cartesian-axis-tick-value { fill: var(--d-text-500); }
+.dark .recharts-legend-item-text { color: var(--d-text-700) !important; }
+.dark .recharts-default-tooltip {
+  background-color: var(--d-surface-2) !important;
+  border-color: var(--d-border-strong) !important;
+  color: var(--d-text-900);
+}
+.dark .recharts-tooltip-cursor { fill: rgb(255 255 255 / 0.04); }
+.dark .recharts-pie-sector path,
+.dark .recharts-sector { stroke: var(--d-surface); }
