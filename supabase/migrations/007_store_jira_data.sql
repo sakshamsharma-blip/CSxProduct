@@ -78,10 +78,22 @@ SET jira_key = upper(substring(coalesce(freshdesk_id, '') from '([A-Za-z][A-Za-z
 WHERE jira_key IS DISTINCT FROM upper(substring(coalesce(freshdesk_id, '') from '([A-Za-z][A-Za-z0-9]+-[0-9]+)'));
 
 -- ===== Schedule the background sync every 15 minutes =====
--- Needs a Vault secret named `flow_jira_sync_secret` holding the same value
--- as the Edge Function secret JIRA_SYNC_SECRET (create both before this runs:
+-- Needs a Vault secret named `flow_jira_sync_secret` (any long random value):
 --   select vault.create_secret('<value>', 'flow_jira_sync_secret');
---   supabase secrets set JIRA_SYNC_SECRET=<value>)
+-- The cron job sends it in a header; jira-sync-all compares it with the same
+-- Vault secret through the function below, which only the service role (the
+-- Edge Function) may call. No separate Edge Function secret to keep in step.
+CREATE OR REPLACE FUNCTION public.get_flow_jira_sync_secret()
+RETURNS text
+LANGUAGE sql
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+  SELECT decrypted_secret FROM vault.decrypted_secrets WHERE name = 'flow_jira_sync_secret' LIMIT 1;
+$$;
+REVOKE ALL ON FUNCTION public.get_flow_jira_sync_secret() FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.get_flow_jira_sync_secret() TO service_role;
+
 CREATE EXTENSION IF NOT EXISTS pg_cron;
 CREATE EXTENSION IF NOT EXISTS pg_net;
 

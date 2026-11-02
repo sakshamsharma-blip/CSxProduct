@@ -20,8 +20,9 @@
 // Jira calls: tickets we already know the Jira id of are fetched in batches
 // of up to 100 with one search; the rest (first sync, newly linked) one by one.
 //
-// Secrets: JIRA_EMAIL, JIRA_API_TOKEN, JIRA_DOMAIN (shared with jira-sync),
-//          JIRA_SYNC_SECRET (must match Vault secret flow_jira_sync_secret).
+// Secrets: JIRA_EMAIL, JIRA_API_TOKEN, JIRA_DOMAIN (shared with jira-sync).
+//          The cron secret lives only in Vault (flow_jira_sync_secret); this
+//          function reads it through a service-role-only database function.
 // Deploy:  supabase functions deploy jira-sync-all --no-verify-jwt
 //          (the function checks the secret / user token itself)
 
@@ -30,13 +31,23 @@ import { corsHeaders } from '../_shared/cors.ts';
 
 const JIRA_DOMAIN = Deno.env.get('JIRA_DOMAIN') ?? 'crelio.atlassian.net';
 const JIRA_AUTH = 'Basic ' + btoa(`${Deno.env.get('JIRA_EMAIL') ?? ''}:${Deno.env.get('JIRA_API_TOKEN') ?? ''}`);
-const SYNC_SECRET = Deno.env.get('JIRA_SYNC_SECRET') ?? '';
 const FIELDS = ['status', 'assignee'];
 const BATCH = 100;
 
 const db = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!, {
   auth: { persistSession: false, autoRefreshToken: false },
 });
+
+// The same Vault secret the cron job sends; read once per function instance.
+let syncSecret: Promise<string> | null = null;
+function getSyncSecret(): Promise<string> {
+  syncSecret ??= (async () => {
+    const { data, error } = await db.rpc('get_flow_jira_sync_secret');
+    if (error || typeof data !== 'string') { syncSecret = null; return ''; }
+    return data;
+  })();
+  return syncSecret;
+}
 
 interface JiraIssue {
   id: string;
@@ -216,7 +227,9 @@ Deno.serve(async (req) => {
       return json({ error: 'Jira credentials not configured' }, 500);
     }
 
-    const fromCron = SYNC_SECRET !== '' && req.headers.get('x-sync-secret') === SYNC_SECRET;
+    const sentSecret = req.headers.get('x-sync-secret');
+    const expected = sentSecret ? await getSyncSecret() : '';
+    const fromCron = expected !== '' && sentSecret === expected;
     let onlyTicketId: string | null = null;
 
     if (!fromCron) {
