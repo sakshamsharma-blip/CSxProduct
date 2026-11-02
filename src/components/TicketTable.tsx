@@ -1,8 +1,8 @@
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import {
   Ticket, PRIORITY_COLORS, Priority, TicketStatus,
   TicketSubType, SprintStatus, SPRINT_STATUS_LABELS, SPRINT_STATUS_COLORS,
-  SortConfig, SortField, FilterConfig,
+  SortConfig, SortField, FilterConfig, EMPTY_FILTERS, StatusFilterValue, STATUS_LABELS,
   getStatusLabel, getStatusColor, isReopenedPending,
   REOPENED_LABEL, REOPENED_COLOR
 } from '../types';
@@ -16,12 +16,70 @@ interface TicketTableProps {
   onSelectTicket: (ticket: Ticket) => void;
   selectedTicketId: string | null;
   attentionFlags?: AttentionFlag[];
+  /** Every ticket the user can see (not just this tab) — used to spot duplicate Jira links. */
+  allTickets?: Ticket[];
+  /** Overdue-only toggle is controlled by the page so the banner can switch it on. */
+  overdueOnly: boolean;
+  onOverdueChange: (value: boolean) => void;
 }
 
-export function TicketTable({ tickets, searchQuery, onSearchChange, onSelectTicket, selectedTicketId, attentionFlags = [] }: TicketTableProps) {
+// Order of options in the status picker
+const STATUS_FILTER_OPTIONS: { value: StatusFilterValue; label: string }[] = [
+  { value: 'REOPENED', label: 'Reopened' },
+  { value: TicketStatus.NEW_ESCALATION, label: 'New Escalation' },
+  { value: TicketStatus.PENDING_PROD_REVIEW, label: 'Pending Product' },
+  { value: TicketStatus.IN_PRODUCT_SCOPE, label: STATUS_LABELS[TicketStatus.IN_PRODUCT_SCOPE] },
+  { value: TicketStatus.IN_PROGRESS, label: STATUS_LABELS[TicketStatus.IN_PROGRESS] },
+  { value: TicketStatus.ON_HOLD_UNTIL, label: STATUS_LABELS[TicketStatus.ON_HOLD_UNTIL] },
+  { value: TicketStatus.RETURNED_TO_CS, label: 'Returned to CS' },
+  { value: TicketStatus.RESOLVED, label: STATUS_LABELS[TicketStatus.RESOLVED] },
+  { value: TicketStatus.RESOLVED_BY_CS, label: STATUS_LABELS[TicketStatus.RESOLVED_BY_CS] },
+  { value: TicketStatus.CLOSED, label: STATUS_LABELS[TicketStatus.CLOSED] },
+];
+
+export function TicketTable({ tickets, searchQuery, onSearchChange, onSelectTicket, selectedTicketId, attentionFlags = [], allTickets, overdueOnly, onOverdueChange }: TicketTableProps) {
   // Default sort by priority (Critical first)
   const [sort, setSort] = useState<SortConfig>({ field: 'priority', direction: 'asc' });
-  const [filters, setFilters] = useState<FilterConfig>({ priority: 'ALL', subType: 'ALL', status: 'ALL', createdBy: 'ALL', assignee: 'ALL' });
+  const [baseFilters, setFilters] = useState<FilterConfig>(EMPTY_FILTERS);
+  const filters: FilterConfig = { ...baseFilters, overdueOnly };
+  const [statusMenuOpen, setStatusMenuOpen] = useState(false);
+  const statusMenuRef = useRef<HTMLDivElement>(null);
+
+  // Close the status picker when clicking outside it
+  useEffect(() => {
+    if (!statusMenuOpen) return;
+    const onDown = (e: MouseEvent) => {
+      if (statusMenuRef.current && !statusMenuRef.current.contains(e.target as Node)) setStatusMenuOpen(false);
+    };
+    document.addEventListener('mousedown', onDown);
+    return () => document.removeEventListener('mousedown', onDown);
+  }, [statusMenuOpen]);
+
+  function toggleStatus(value: StatusFilterValue) {
+    setFilters(f => ({
+      ...f,
+      statuses: f.statuses.includes(value) ? f.statuses.filter(v => v !== value) : [...f.statuses, value],
+    }));
+  }
+
+  // Jira keys linked to more than one Flow ticket → shown as "Duplicate"
+  const duplicateKeys = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const t of allTickets ?? tickets) {
+      const k = extractJiraKey(t.freshdesk_id);
+      if (k) counts.set(k, (counts.get(k) ?? 0) + 1);
+    }
+    return new Set([...counts.entries()].filter(([, n]) => n > 1).map(([k]) => k));
+  }, [allTickets, tickets]);
+
+  const overdueCount = tickets.filter(t => needsWeeklyUpdate(t)).length;
+  const statusButtonLabel = filters.statuses.length === 0
+    ? 'All Statuses'
+    : filters.statuses.length === 1
+      ? STATUS_FILTER_OPTIONS.find(o => o.value === filters.statuses[0])?.label ?? '1 status'
+      : `${filters.statuses.length} statuses`;
+  const anyFilter = filters.priority !== 'ALL' || filters.subType !== 'ALL' || filters.statuses.length > 0
+    || filters.createdBy !== 'ALL' || filters.assignee !== 'ALL' || filters.overdueOnly;
   const [showExportModal, setShowExportModal] = useState(false);
   const [columnWidths, setColumnWidths] = useState<Record<string, number>>({});
   const allUsers = useAllUsers();
@@ -140,20 +198,32 @@ export function TicketTable({ tickets, searchQuery, onSearchChange, onSelectTick
             <option value={TicketSubType.BACKEND_CONFIG}>Backend Config</option>
           </select>
 
-          <select value={filters.status} onChange={e => setFilters(f => ({ ...f, status: e.target.value as TicketStatus | 'ALL' | 'REOPENED' }))}
-            className="px-2 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
-            <option value="ALL">All Statuses</option>
-            <option value="REOPENED">Reopened</option>
-            <option value={TicketStatus.NEW_ESCALATION}>New Escalation</option>
-            <option value={TicketStatus.PENDING_PROD_REVIEW}>Pending Product</option>
-            <option value={TicketStatus.IN_PRODUCT_SCOPE}>In Product Scope</option>
-            <option value={TicketStatus.IN_PROGRESS}>In Progress</option>
-            <option value={TicketStatus.ON_HOLD_UNTIL}>On Hold</option>
-            <option value={TicketStatus.RETURNED_TO_CS}>Returned to CS</option>
-            <option value={TicketStatus.RESOLVED}>Resolved</option>
-            <option value={TicketStatus.RESOLVED_BY_CS}>Resolved by CS Lead</option>
-            <option value={TicketStatus.CLOSED}>Closed</option>
-          </select>
+          {/* Status: pick one or more */}
+          <div className="relative" ref={statusMenuRef}>
+            <button type="button" onClick={() => setStatusMenuOpen(o => !o)}
+              aria-haspopup="listbox" aria-expanded={statusMenuOpen}
+              className={`px-2 py-2 border rounded-md text-sm flex items-center gap-1 focus:outline-none focus:ring-2 focus:ring-blue-500 ${filters.statuses.length ? 'border-blue-400 bg-blue-50 text-blue-800' : 'border-gray-300 bg-white text-gray-700'}`}>
+              {statusButtonLabel}
+              <span className="text-gray-400 text-xs">▾</span>
+            </button>
+            {statusMenuOpen && (
+              <div className="absolute z-30 mt-1 w-56 bg-white border border-gray-200 rounded-md shadow-lg py-1" role="listbox" aria-multiselectable="true">
+                {STATUS_FILTER_OPTIONS.map(o => (
+                  <label key={o.value} className="flex items-center gap-2 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50 cursor-pointer">
+                    <input type="checkbox" checked={filters.statuses.includes(o.value)} onChange={() => toggleStatus(o.value)}
+                      className="rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
+                    {o.label}
+                  </label>
+                ))}
+                {filters.statuses.length > 0 && (
+                  <button type="button" onClick={() => setFilters(f => ({ ...f, statuses: [] }))}
+                    className="w-full text-left px-3 py-1.5 text-xs text-blue-600 hover:bg-gray-50 border-t border-gray-100 mt-1">
+                    Clear statuses
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
 
           <select value={filters.createdBy} onChange={e => setFilters(f => ({ ...f, createdBy: e.target.value }))}
             className="px-2 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
@@ -167,8 +237,14 @@ export function TicketTable({ tickets, searchQuery, onSearchChange, onSelectTick
             {uniqueAssignees.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
           </select>
 
-          {(filters.priority !== 'ALL' || filters.subType !== 'ALL' || filters.status !== 'ALL' || filters.createdBy !== 'ALL' || filters.assignee !== 'ALL') && (
-            <button onClick={() => setFilters({ priority: 'ALL', subType: 'ALL', status: 'ALL', createdBy: 'ALL', assignee: 'ALL' })}
+          {/* Overdue: In Scope / In Progress with 7+ days without an update */}
+          <button type="button" onClick={() => onOverdueChange(!overdueOnly)} aria-pressed={overdueOnly}
+            className={`px-2 py-2 border rounded-md text-sm font-medium transition-colors ${overdueOnly ? 'border-red-400 bg-red-50 text-red-700' : 'border-gray-300 text-gray-600 hover:bg-gray-50'}`}>
+            🔴 Overdue{overdueCount > 0 && <span className="ml-1 text-xs">({overdueCount})</span>}
+          </button>
+
+          {anyFilter && (
+            <button onClick={() => { setFilters(EMPTY_FILTERS); onOverdueChange(false); }}
               className="px-2 py-2 text-xs text-blue-600 hover:text-blue-800 font-medium">Clear filters</button>
           )}
 
@@ -215,7 +291,7 @@ export function TicketTable({ tickets, searchQuery, onSearchChange, onSelectTick
           <tbody className="divide-y divide-gray-100">
             {sorted.length === 0 ? (
               <tr><td colSpan={14} className="px-4 py-12 text-center text-gray-400">
-                {searchQuery || filters.priority !== 'ALL' || filters.subType !== 'ALL' || filters.status !== 'ALL' || filters.createdBy !== 'ALL' || filters.assignee !== 'ALL'
+                {searchQuery || anyFilter
                   ? 'No tickets match your filters.' : 'No tickets yet.'}
               </td></tr>
             ) : (
@@ -239,6 +315,11 @@ export function TicketTable({ tickets, searchQuery, onSearchChange, onSelectTick
                         <span className="text-gray-500">{ticket.custom_id}</span>
                       )}
                       {ticket.is_reopened && <span className="ml-1 text-red-600" title="Reopened">🔄</span>}
+                      {jiraKey && duplicateKeys.has(jiraKey) && (
+                        <span className="ml-1 px-1 py-0.5 rounded bg-amber-100 text-amber-800 text-[10px] font-sans font-medium"
+                          title={`${jiraKey} is linked to more than one Flow ticket`}>Duplicate</span>
+                      )}
+                      {jiraKey && <div className="text-[10px] text-gray-400">{ticket.custom_id}</div>}
                     </td>
                     {/* JIRA Status column */}
                     <td className="px-3 py-2">

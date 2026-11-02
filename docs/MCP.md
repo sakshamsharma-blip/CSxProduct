@@ -42,12 +42,14 @@ Supabase Auth OAuth 2.1 server ──▶ Flow web app /oauth/consent ──▶ P
 | `recent_activity` | One feed of every comment, update and stage change (plus new tickets) in a time window, with a summary. Same data as the web app's **Activity** page | Everyone (only tickets they can see) |
 | `get_analytics` | Same numbers as the Analytics page for a period (this week / month to date / year to date / all time / custom dates) | CS Lead, Product Lead, Product Team, Admin |
 | `list_product_users` | People a ticket can be assigned to | Everyone |
-| `create_ticket` | New escalation in "New Escalation" | CS Manager, CS Lead, Admin |
-| `add_comment` | Comment on the timeline | Everyone (on tickets they can see) |
+| `create_ticket` | New escalation in "New Escalation". Stops and lists possible duplicates (same Jira key, or same client + subject) unless `create_even_if_duplicate` is set | CS Manager, CS Lead, Admin |
+| `add_comment` | Comment on the timeline. On Pending Review / In Scope / In Progress tickets, a comment from CS Lead, Product or Admin also counts as the weekly update | Everyone (on tickets they can see) |
 | `post_weekly_update` | Progress update; resets the 7-day weekly-update clock | CS Lead, Product Lead, Product Team, Admin |
 | `update_ticket` | Stage / priority / sprint / assignee in one save, like "Save All Changes" | Same rules as the web app |
 | `edit_ticket_details` | Fix subject, description, lab name or client ID; old → new is written to the timeline | Ticket creator, CS Lead, Admin |
 | `link_jira` | Add, replace or remove the Jira / Freshdesk link (a key like EA-1234 or a URL) | Ticket creator, CS Lead, Product Lead, Product Team, Admin |
+
+**Ticket IDs:** every tool accepts a ticket's Jira key (EN-1234) or its Flow ID (REQ-1042), and replies show the Jira key as `id` (the Flow ID is in `flow_id`). Tickets without a Jira link show their REQ ID.
 
 Not included on purpose: **Revert last action**, user management, and anything that bypasses roles.
 

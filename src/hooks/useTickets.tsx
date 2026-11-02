@@ -280,11 +280,12 @@ export function applyFilters(tickets: Ticket[], filters: FilterConfig): Ticket[]
   return tickets.filter(t => {
     if (filters.priority !== 'ALL' && t.priority !== filters.priority) return false;
     if (filters.subType !== 'ALL' && t.sub_type !== filters.subType) return false;
-    if (filters.status === 'REOPENED') {
-      if (!t.is_reopened) return false;
-    } else if (filters.status !== 'ALL' && t.status !== filters.status) {
-      return false;
+    if (filters.statuses.length > 0) {
+      // A ticket matches if it is in ANY of the picked statuses ("Reopened" = reopened flag).
+      const matches = filters.statuses.some(s => (s === 'REOPENED' ? t.is_reopened : t.status === s));
+      if (!matches) return false;
     }
+    if (filters.overdueOnly && !needsWeeklyUpdate(t)) return false;
     if (filters.createdBy !== 'ALL' && t.reporter_id !== filters.createdBy) return false;
     if (filters.assignee !== 'ALL' && t.assignee_id !== filters.assignee) return false;
     return true;

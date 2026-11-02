@@ -127,13 +127,22 @@ export interface SortConfig {
   direction: SortDirection;
 }
 
+export type StatusFilterValue = TicketStatus | 'REOPENED';
+
 export interface FilterConfig {
   priority: Priority | 'ALL';
   subType: TicketSubType | 'ALL';
-  status: TicketStatus | 'ALL' | 'REOPENED';
+  /** Empty = all statuses. Several can be picked at once (e.g. In Progress + In Product Scope). */
+  statuses: StatusFilterValue[];
   createdBy: string | 'ALL';
   assignee: string | 'ALL';
+  /** Only In Scope / In Progress tickets with 7+ days without a product update or Jira change. */
+  overdueOnly: boolean;
 }
+
+export const EMPTY_FILTERS: FilterConfig = {
+  priority: 'ALL', subType: 'ALL', statuses: [], createdBy: 'ALL', assignee: 'ALL', overdueOnly: false,
+};
 
 // ===== Display Constants =====
 export const STATUS_LABELS: Record<TicketStatus, string> = {

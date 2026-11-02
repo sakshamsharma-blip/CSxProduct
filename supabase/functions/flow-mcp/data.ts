@@ -4,7 +4,7 @@
 
 import type { SupabaseClient } from 'npm:@supabase/supabase-js@2.117.2';
 import {
-  isTicketVisible, extractJiraKey, needsWeeklyUpdate, isHoldExpired, lastActivityAt, daysBetween,
+  isTicketVisible, extractJiraKey, displayId, isJiraKey, needsWeeklyUpdate, isHoldExpired, lastActivityAt, daysBetween,
   STATUS_LABELS, SUB_TYPE_LABELS, SPRINT_STATUS_LABELS, ROLE_LABELS, PRODUCT_ROLES,
   TicketStatus, TicketSubType, SprintStatus, UserRole, Priority,
 } from '../_shared/flowRules.ts';
@@ -112,12 +112,34 @@ export async function loadVisibleTickets(ctx: Ctx): Promise<TicketRow[]> {
 /** Accepts "REQ-1042", "req 1042", "1042". */
 export function normalizeTicketRef(ref: string): string {
   const digits = ref.trim().match(/^(?:REQ[-\s_]?)?(\d+)$/i);
-  if (!digits) throw new UserFacingError(`"${ref}" doesn't look like a Flow ticket ID (expected something like REQ-1042).`);
+  if (!digits) throw new UserFacingError(`"${ref}" doesn't look like a ticket ID (expected a Jira key like EN-1234, or a Flow ID like REQ-1042).`);
   return `REQ-${digits[1]}`;
 }
 
+/**
+ * Finds a ticket by its Jira key (EA-1234, EN-567…) or its Flow ID (REQ-1042 / 1042).
+ * People mostly know tickets by their Jira key, so that is tried first.
+ */
 export async function findTicket(ctx: Ctx, ref: string): Promise<TicketRow> {
-  const customId = normalizeTicketRef(ref);
+  const raw = ref.trim();
+  if (isJiraKey(raw)) {
+    const key = raw.toUpperCase();
+    const { data, error } = await ctx.db.from('tickets').select(TICKET_SELECT).ilike('freshdesk_id', `%${key}%`);
+    if (error) throw dbError(error, `load ${key}`);
+    // ilike "EA-15" would also match "EA-150", so keep exact key matches only.
+    const matches = ((data ?? []) as unknown as TicketRow[])
+      .filter(t => extractJiraKey(t.freshdesk_id) === key && isTicketVisible(t, ctx.me.role, ctx.me.id));
+    if (matches.length === 0) {
+      throw new UserFacingError(`No Flow ticket visible to a ${ROLE_LABELS[ctx.me.role]} is linked to ${key}.`);
+    }
+    if (matches.length > 1) {
+      throw new UserFacingError(
+        `${key} is linked to more than one Flow ticket (${matches.map(t => `${t.custom_id}: ${STATUS_LABELS[t.status]}`).join(', ')}) — ` +
+        `these look like duplicates. Use the Flow ID (e.g. ${matches[0].custom_id}) to pick one.`);
+    }
+    return matches[0];
+  }
+  const customId = normalizeTicketRef(raw);
   const { data, error } = await ctx.db.from('tickets').select(TICKET_SELECT).eq('custom_id', customId).maybeSingle();
   if (error) throw dbError(error, `load ${customId}`);
   const ticket = data as TicketRow | null;
@@ -125,6 +147,23 @@ export async function findTicket(ctx: Ctx, ref: string): Promise<TicketRow> {
     throw new UserFacingError(`${customId} wasn't found, or it isn't visible to a ${ROLE_LABELS[ctx.me.role]}.`);
   }
   return ticket;
+}
+
+/** Other tickets already linked to the same Jira key (any stage), for duplicate warnings. */
+export async function findTicketsByJiraKey(ctx: Ctx, key: string, excludeId?: string): Promise<TicketRow[]> {
+  const k = key.toUpperCase();
+  const { data, error } = await ctx.db.from('tickets').select(TICKET_SELECT).ilike('freshdesk_id', `%${k}%`);
+  if (error) throw dbError(error, `check for tickets linked to ${k}`);
+  return ((data ?? []) as unknown as TicketRow[]).filter(t => extractJiraKey(t.freshdesk_id) === k && t.id !== excludeId);
+}
+
+/** Open tickets for the same client with the same subject (case/space-insensitive). */
+export async function findSimilarTickets(ctx: Ctx, clientId: string, subject: string): Promise<TicketRow[]> {
+  const norm = (v: string) => v.trim().toLowerCase().replace(/\s+/g, ' ');
+  const { data, error } = await ctx.db.from('tickets').select(TICKET_SELECT)
+    .ilike('client_id', clientId.trim()).neq('status', TicketStatus.CLOSED);
+  if (error) throw dbError(error, 'check for similar tickets');
+  return ((data ?? []) as unknown as TicketRow[]).filter(t => norm(t.subject) === norm(subject));
 }
 
 export async function loadTimeline(db: SupabaseClient, ticketId: string): Promise<LogRow[]> {
@@ -138,7 +177,7 @@ export async function loadTimeline(db: SupabaseClient, ticketId: string): Promis
 }
 
 export interface ActivityRow extends LogRow {
-  ticket: Pick<TicketRow, 'id' | 'custom_id' | 'lab_name' | 'client_id' | 'subject' | 'status' | 'is_reopened' | 'reporter_id' | 'assignee_id'> | null;
+  ticket: Pick<TicketRow, 'id' | 'custom_id' | 'freshdesk_id' | 'lab_name' | 'client_id' | 'subject' | 'status' | 'is_reopened' | 'reporter_id' | 'assignee_id'> | null;
 }
 
 /** Timeline entries across all tickets in [from, to], oldest first. */
@@ -147,7 +186,7 @@ export async function loadActivity(db: SupabaseClient, from: Date, to: Date): Pr
     db.from('update_logs')
       .select('id, ticket_id, author_id, comment, previous_status, new_status, hold_target_date, created_at, ' +
         'author:app_users!author_id(full_name, role), ' +
-        'ticket:tickets!ticket_id(id, custom_id, lab_name, client_id, subject, status, is_reopened, reporter_id, assignee_id)')
+        'ticket:tickets!ticket_id(id, custom_id, freshdesk_id, lab_name, client_id, subject, status, is_reopened, reporter_id, assignee_id)')
       .gte('created_at', from.toISOString())
       .lte('created_at', to.toISOString())
       .order('created_at', { ascending: true })
@@ -182,7 +221,9 @@ function clip(s: string | null | undefined, n: number): string | null {
 export function ticketSummary(t: TicketRow, now = new Date()) {
   const inProduct = t.status === TicketStatus.IN_PRODUCT_SCOPE || t.status === TicketStatus.IN_PROGRESS;
   return {
-    id: t.custom_id,
+    // Jira key when linked (what people search for), else the Flow REQ ID.
+    id: displayId(t),
+    flow_id: t.custom_id,
     lab: t.lab_name,
     client_id: t.client_id || null,
     subject: t.subject,

@@ -13,11 +13,11 @@ import {
   getAvailableTransitions, canTransition, canPostUpdate, canChangePriority, canChangeSprintStatus,
   canChangeAssignee, isReopenTransition, PRODUCT_ACTIVITY_STATUSES, SPRINT_CLEARING_STATUSES,
   needsWeeklyUpdate, isHoldExpired, lastActivityAt, daysBetween, normalizeJiraInput,
-  getDateRange, hoursBetween, formatTAT, isTicketVisible, canEditDetails, canLinkJira, extractJiraKey, type TimePeriod,
+  getDateRange, hoursBetween, formatTAT, isTicketVisible, canEditDetails, canLinkJira, extractJiraKey, displayId, type TimePeriod,
 } from '../_shared/flowRules.ts';
 import {
   type Ctx, type TicketRow, type LogRow, UserFacingError, dbError, fetchAll,
-  loadAllTickets, loadVisibleTickets, findTicket, loadTimeline, loadProductUsers, loadActivity,
+  loadAllTickets, loadVisibleTickets, findTicket, findTicketsByJiraKey, findSimilarTickets, loadTimeline, loadProductUsers, loadActivity,
   ticketSummary, ticketDetail, timelineEntry, stageLabel,
 } from './data.ts';
 
@@ -69,7 +69,7 @@ const priorityEnum = z.enum(Object.values(Priority) as [Priority, ...Priority[]]
 const subTypeEnum = z.enum(Object.values(TicketSubType) as [TicketSubType, ...TicketSubType[]]);
 const sprintEnum = z.enum(Object.values(SprintStatus) as [SprintStatus, ...SprintStatus[]]);
 const queueEnum = z.enum(Object.keys(QUEUES) as [QueueKey, ...QueueKey[]]);
-const ticketIdField = z.string().min(1).describe('Flow ticket ID, e.g. "REQ-1042" (or just 1042)');
+const ticketIdField = z.string().min(1).describe('The ticket\'s Jira key (e.g. "EN-13736") or its Flow ID (e.g. "REQ-1042", or just 1042)');
 const isoDay = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Use YYYY-MM-DD');
 
 const STAGE_GUIDE = Object.entries(STATUS_LABELS).map(([code, label]) => `${code} = "${label}"`).join('; ');
@@ -295,10 +295,11 @@ export function registerTools(server: McpServer, ctx: Ctx) {
         moved_to: movedTo,
         by_person: people,
       },
-      new_tickets: created.map(t => ({ id: t.custom_id, lab: t.lab_name, subject: t.subject, priority: t.priority, created_by: t.reporter?.full_name ?? null, at: t.created_at })),
+      new_tickets: created.map(t => ({ id: displayId(t), flow_id: t.custom_id, lab: t.lab_name, subject: t.subject, priority: t.priority, created_by: t.reporter?.full_name ?? null, at: t.created_at })),
       showing: Math.min(limit, newestFirst.length),
       activity: newestFirst.slice(0, limit).map(l => ({
-        ticket: l.ticket!.custom_id,
+        ticket: displayId(l.ticket!),
+        flow_id: l.ticket!.custom_id,
         lab: l.ticket!.lab_name,
         subject: l.ticket!.subject,
         current_stage: stageLabel(l.ticket!),
@@ -358,11 +359,25 @@ export function registerTools(server: McpServer, ctx: Ctx) {
       type: subTypeEnum.describe('BUG, ENHANCEMENT, FEATURE_REQUEST or BACKEND_CONFIG'),
       priority: priorityEnum.optional().describe('Default MEDIUM'),
       jira: z.string().optional().describe('Jira key (e.g. EA-1234) or Jira/Freshdesk URL'),
+      create_even_if_duplicate: z.boolean().optional().describe('Set true only after the user has seen the possible duplicates and still wants a new ticket'),
     },
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
   }, async (a) => {
     if (!CREATE_ROLES.includes(me.role)) {
       throw new UserFacingError(`Only CS Manager, CS Lead and Admin can create tickets — you are ${ROLE_LABELS[me.role]}.`);
+    }
+    if (!a.create_even_if_duplicate) {
+      const key = extractJiraKey(normalizeJiraInput(a.jira));
+      const sameJira = key ? await findTicketsByJiraKey(ctx, key) : [];
+      const sameSubject = (await findSimilarTickets(ctx, a.client_id, a.subject)).filter(t => !sameJira.some(j => j.id === t.id));
+      if (sameJira.length || sameSubject.length) {
+        const line = (t: TicketRow) => `${displayId(t)} (${t.custom_id}, ${stageLabel(t)}): "${t.subject}"`;
+        throw new UserFacingError(
+          'Possible duplicate — not created yet.\n' +
+          (sameJira.length ? `Already linked to ${key}: ${sameJira.map(line).join('; ')}.\n` : '') +
+          (sameSubject.length ? `Same client and subject: ${sameSubject.map(line).join('; ')}.\n` : '') +
+          'Ask the user whether to add to the existing ticket instead. If they still want a new one, call again with create_even_if_duplicate: true.');
+      }
     }
     const { data, error } = await ctx.db.from('tickets').insert([{
       lab_name: a.lab_name.trim(),
@@ -384,16 +399,21 @@ export function registerTools(server: McpServer, ctx: Ctx) {
   // ----------------------------------------------------------- add_comment
   addTool(server, 'add_comment', {
     title: 'Comment on a Flow ticket',
-    description: 'Adds a comment to a ticket\'s timeline (and makes it the "latest comment"). Does not change the stage or reset the weekly-update clock — use post_weekly_update for that.',
+    description: 'Adds a comment to a ticket\'s timeline (and makes it the "latest comment"). Does not change the stage. ' +
+      'When the ticket is Pending Product Review, In Product Scope or In Progress and the user is CS Lead, Product Lead, Product Team or Admin, ' +
+      'the comment also counts as the weekly update and resets the 7-day clock (same as post_weekly_update).',
     inputSchema: { ticket_id: ticketIdField, comment: z.string().min(1) },
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
   }, async ({ ticket_id, comment }) => {
     const t = await findTicket(ctx, ticket_id);
     const text = comment.trim();
     if (!text) throw new UserFacingError('Comment cannot be empty.');
-    await updateTicketRow(ctx, t, { latest_comment: text }, 'add the comment');
+    const countsAsUpdate = canPostUpdate(t.status, me.role);
+    await updateTicketRow(ctx, t, countsAsUpdate
+      ? { latest_comment: text, last_product_activity_at: new Date().toISOString() }
+      : { latest_comment: text }, 'add the comment');
     await insertLog(ctx, t.id, t.status, t.status, tagged(text), null);
-    return ok({ ticket: t.custom_id, commented: text });
+    return ok({ ticket: displayId(t), commented: text, weekly_update_clock_reset: countsAsUpdate });
   });
 
   // ---------------------------------------------------- post_weekly_update
@@ -407,14 +427,14 @@ export function registerTools(server: McpServer, ctx: Ctx) {
     if (!canPostUpdate(t.status, me.role)) {
       throw new UserFacingError(
         ALL_ACTION_ROLES.includes(me.role)
-          ? `Weekly updates can only be posted while a ticket is Pending Product Review, In Product Scope or In Progress — ${t.custom_id} is ${stageLabel(t)}.`
+          ? `Weekly updates can only be posted while a ticket is Pending Product Review, In Product Scope or In Progress — ${displayId(t)} is ${stageLabel(t)}.`
           : `A ${ROLE_LABELS[me.role]} can't post weekly updates.`,
       );
     }
     const text = update.trim();
     await updateTicketRow(ctx, t, { last_product_activity_at: new Date().toISOString(), latest_comment: text }, 'post the update');
     await insertLog(ctx, t.id, t.status, t.status, tagged(text), null);
-    return ok({ ticket: t.custom_id, posted: text, weekly_update_clock_reset: true });
+    return ok({ ticket: displayId(t), posted: text, weekly_update_clock_reset: true });
   });
 
   // --------------------------------------------------------- update_ticket
@@ -450,7 +470,7 @@ export function registerTools(server: McpServer, ctx: Ctx) {
       if (!canTransition(current, target, me.role, me.id, t.reporter_id)) {
         const allowed = getAvailableTransitions(current, me.role, me.id, t.reporter_id).map(s => STATUS_LABELS[s]);
         throw new UserFacingError(
-          `You can't move ${t.custom_id} from ${STATUS_LABELS[current]} to ${STATUS_LABELS[target]}. ` +
+          `You can't move ${displayId(t)} from ${STATUS_LABELS[current]} to ${STATUS_LABELS[target]}. ` +
           (allowed.length ? `Stages you can move it to: ${allowed.join(', ')}.` : `As ${ROLE_LABELS[me.role]} you can't change this ticket's stage.`),
         );
       }
@@ -478,7 +498,7 @@ export function registerTools(server: McpServer, ctx: Ctx) {
     // ---- priority
     if (a.priority && a.priority !== t.priority) {
       if (!canChangePriority(me.role, t.sprint_status)) {
-        throw new UserFacingError(`${t.custom_id} is In Sprint — only CS Lead, Product Lead, Product Team or Admin can change its priority.`);
+        throw new UserFacingError(`${displayId(t)} is In Sprint — only CS Lead, Product Lead, Product Team or Admin can change its priority.`);
       }
       update.priority = a.priority;
       parts.push(`Priority → ${a.priority}`);
@@ -489,7 +509,7 @@ export function registerTools(server: McpServer, ctx: Ctx) {
       if (!canChangeSprintStatus(current, me.role)) {
         throw new UserFacingError(
           ALL_ACTION_ROLES.includes(me.role)
-            ? `Sprint status can only be set while a ticket is Pending Product Review, In Product Scope or In Progress — ${t.custom_id} is ${stageLabel(t)}.`
+            ? `Sprint status can only be set while a ticket is Pending Product Review, In Product Scope or In Progress — ${displayId(t)} is ${stageLabel(t)}.`
             : `A ${ROLE_LABELS[me.role]} can't change sprint status.`,
         );
       }
@@ -531,13 +551,15 @@ export function registerTools(server: McpServer, ctx: Ctx) {
     if (comment) {
       update.latest_comment = comment;
       parts.push(comment);
+      // A written note on a product-stage ticket counts as the weekly update.
+      if (canPostUpdate(current, me.role)) update.last_product_activity_at = new Date().toISOString();
     }
-    await updateTicketRow(ctx, t, update, `update ${t.custom_id}`);
+    await updateTicketRow(ctx, t, update, `update ${displayId(t)}`);
     await insertLog(ctx, t.id, current, finalStatus, tagged(parts.join(' | ') || 'Batch update'), holdIso);
 
     const after = await findTicket(ctx, t.custom_id).catch(() => null);
     return ok({
-      ticket: t.custom_id,
+      ticket: displayId(t),
       stage_change: finalStatus !== current ? `${STATUS_LABELS[current]} → ${STATUS_LABELS[finalStatus]}` : undefined,
       changes: parts,
       now: after ? ticketSummary(after) : 'Saved. (The ticket is no longer visible to your role at its new stage.)',
@@ -564,7 +586,7 @@ export function registerTools(server: McpServer, ctx: Ctx) {
   }, async (a) => {
     const t = await findTicket(ctx, a.ticket_id);
     if (!canEditDetails(me.role, me.id, t.reporter_id)) {
-      throw new UserFacingError(`Only the person who raised ${t.custom_id}, a CS Lead or an Admin can edit its details.`);
+      throw new UserFacingError(`Only the person who raised ${displayId(t)}, a CS Lead or an Admin can edit its details.`);
     }
     const update: Record<string, unknown> = {};
     const parts: string[] = [];
@@ -587,11 +609,11 @@ export function registerTools(server: McpServer, ctx: Ctx) {
     if (parts.length === 0) {
       throw new UserFacingError('Nothing to change — the ticket already has those details.');
     }
-    await updateTicketRow(ctx, t, update, `edit ${t.custom_id}`);
+    await updateTicketRow(ctx, t, update, `edit ${displayId(t)}`);
     const reason = (a.reason ?? '').trim();
     await insertLog(ctx, t.id, t.status, t.status, tagged(`Details edited: ${parts.join(' | ')}${reason ? ` | ${reason}` : ''}`), null);
     const after = await findTicket(ctx, t.custom_id);
-    return ok({ ticket: t.custom_id, changes: parts, now: ticketDetail(after) });
+    return ok({ ticket: displayId(t), changes: parts, now: ticketDetail(after) });
   });
 
   // ------------------------------------------------------------- link_jira
@@ -600,6 +622,7 @@ export function registerTools(server: McpServer, ctx: Ctx) {
     description:
       'Sets, replaces or removes the Jira (or Freshdesk) link on an existing Flow ticket. Accepts a Jira key like EA-1234, ' +
       'a Jira or Freshdesk URL, or "none" to remove the link. Jira keys become crelio.atlassian.net links, the same as in the web app. ' +
+      'Use it when a Jira ticket moved boards (e.g. EA-1234 became EN-567). ' +
       'Allowed for the person who raised the ticket, CS Lead, Product Lead, Product Team and Admin. The change is written to the timeline; ' +
       'the Jira status column refreshes the next time someone opens the Flow web app.',
     inputSchema: {
@@ -611,7 +634,7 @@ export function registerTools(server: McpServer, ctx: Ctx) {
   }, async (a) => {
     const t = await findTicket(ctx, a.ticket_id);
     if (!canLinkJira(me.role, me.id, t.reporter_id)) {
-      throw new UserFacingError(`Only the person who raised ${t.custom_id}, a CS Lead, Product or an Admin can change its Jira link.`);
+      throw new UserFacingError(`Only the person who raised ${displayId(t)}, a CS Lead, Product or an Admin can change its Jira link.`);
     }
     const raw = a.jira.trim();
     const remove = /^(none|remove|unlink|-)$/i.test(raw);
@@ -625,18 +648,27 @@ export function registerTools(server: McpServer, ctx: Ctx) {
     }
     const label = (v: string | null) => (v ? (extractJiraKey(v) ?? v) : 'none');
     if ((link ?? null) === (t.freshdesk_id ?? null)) {
-      throw new UserFacingError(`${t.custom_id} is already linked to ${label(link)}.`);
+      throw new UserFacingError(`${displayId(t)} is already linked to ${label(link)}.`);
     }
     await updateTicketRow(ctx, t, {
       freshdesk_id: link,
       // The stored Jira status belonged to the old link; the web app's sync fills in the new one.
       jira_status: null,
       last_jira_status_change_at: null,
-    }, `change the Jira link on ${t.custom_id}`);
+    }, `change the Jira link on ${displayId(t)}`);
+    const newKey = extractJiraKey(link);
+    const others = newKey ? await findTicketsByJiraKey(ctx, newKey, t.id) : [];
     const reason = (a.reason ?? '').trim();
     const what = link ? (t.freshdesk_id ? `Jira link changed: ${label(t.freshdesk_id)} → ${label(link)}` : `Jira linked: ${label(link)}`) : `Jira link removed (was ${label(t.freshdesk_id)})`;
     await insertLog(ctx, t.id, t.status, t.status, tagged(`${what}${reason ? ` | ${reason}` : ''}`), null);
-    return ok({ ticket: t.custom_id, change: what, jira_link: link });
+    return ok({
+      ticket: newKey ?? t.custom_id,
+      change: what,
+      jira_link: link,
+      possible_duplicates: others.length
+        ? `${newKey} is also linked to ${others.map(o => `${o.custom_id} (${stageLabel(o)})`).join(', ')} — check whether one should be closed.`
+        : undefined,
+    });
   });
 }
 

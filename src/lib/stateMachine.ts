@@ -102,3 +102,13 @@ export function isReopenTransition(from: TicketStatus, to: TicketStatus): boolea
     to === TicketStatus.NEW_ESCALATION
   );
 }
+
+// Edit ticket details — the ticket's creator, CS Lead or Admin
+export function canEditDetails(userRole: UserRole, userId: string, reporterId: string): boolean {
+  return userId === reporterId || userRole === UserRole.CS_LEAD || userRole === UserRole.ADMIN;
+}
+
+// Change the Jira link — anyone who can edit details, plus Product roles
+export function canLinkJira(userRole: UserRole, userId: string, reporterId: string): boolean {
+  return canEditDetails(userRole, userId, reporterId) || PRODUCT_ROLES.includes(userRole);
+}
