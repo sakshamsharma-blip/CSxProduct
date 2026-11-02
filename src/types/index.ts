@@ -91,6 +91,12 @@ export interface Ticket {
   latest_comment: string | null;
   jira_status: string | null;
   last_jira_status_change_at: string | null;
+  // Stored copy of Jira data, refreshed by the jira-sync-all job every 15 minutes
+  jira_key?: string | null;
+  jira_issue_id?: string | null;
+  jira_status_category?: string | null; // To Do / In Progress / Done
+  jira_assignee?: string | null;
+  jira_synced_at?: string | null;
   created_at: string;
   updated_at: string;
 }

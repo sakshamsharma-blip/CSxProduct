@@ -624,7 +624,7 @@ export function registerTools(server: McpServer, ctx: Ctx) {
       'a Jira or Freshdesk URL, or "none" to remove the link. Jira keys become crelio.atlassian.net links, the same as in the web app. ' +
       'Use it when a Jira ticket moved boards (e.g. EA-1234 became EN-567). ' +
       'Allowed for the person who raised the ticket, CS Lead, Product Lead, Product Team and Admin. The change is written to the timeline; ' +
-      'the Jira status column refreshes the next time someone opens the Flow web app.',
+      'the Jira status refreshes within 15 minutes (background sync).',
     inputSchema: {
       ticket_id: ticketIdField,
       jira: z.string().min(1).describe('Jira key (EA-1234), Jira/Freshdesk URL, or "none" to remove the link'),
@@ -652,7 +652,7 @@ export function registerTools(server: McpServer, ctx: Ctx) {
     }
     await updateTicketRow(ctx, t, {
       freshdesk_id: link,
-      // The stored Jira status belonged to the old link; the web app's sync fills in the new one.
+      // The stored Jira status belonged to the old link; the background sync fills in the new one.
       jira_status: null,
       last_jira_status_change_at: null,
     }, `change the Jira link on ${displayId(t)}`);
