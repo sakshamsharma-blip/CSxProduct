@@ -6,7 +6,7 @@
 //
 // Two ways to call it:
 //   1. Every 15 minutes from pg_cron (migration 007) with the header
-//      `x-sync-secret: <JIRA_SYNC_SECRET>` → syncs every open linked ticket.
+//      `x-sync-secret: <Vault flow_jira_sync_secret>` → syncs every open linked ticket.
 //   2. From the web app by a signed-in Flow user with { "ticket_id": "<uuid>" }
 //      → syncs just that ticket (used right after someone changes a Jira link).
 //
