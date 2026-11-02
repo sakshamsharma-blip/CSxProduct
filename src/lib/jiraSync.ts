@@ -1,12 +1,14 @@
 import { supabase } from './supabase';
 import { Ticket } from '../types';
-import { normalizeJiraInput } from './jiraUtils';
+import { normalizeJiraInput, extractJiraKey } from './jiraUtils';
 
 /**
  * For each ticket with a JIRA link, fetch current status from the jira-sync Edge Function.
  * If the status has changed:
  *   - Update jira_status and last_jira_status_change_at on the ticket
  *   - Create an audit log entry showing the JIRA status transition
+ * If the Jira issue was moved to another board (its key changed), the stored
+ * link is updated to the new key.
  * Called once on page load — does not block the UI.
  */
 export async function syncJiraStatuses(tickets: Ticket[]) {
@@ -31,6 +33,28 @@ export async function syncJiraStatuses(tickets: Ticket[]) {
           });
 
           if (error || !data || data.error) return;
+
+          // Ticket moved to another Jira board (e.g. EA-1234 → EN-567)?
+          // Jira still answers on the old key but returns the issue's current key,
+          // so update the link instead of letting someone raise a duplicate REQ.
+          const storedKey = extractJiraKey(ticket.freshdesk_id);
+          const currentKey = typeof data.key === 'string' ? data.key.toUpperCase() : null;
+          if (storedKey && currentKey && currentKey !== storedKey) {
+            const { error: moveError } = await supabase
+              .from('tickets')
+              .update({ freshdesk_id: normalizeJiraInput(currentKey) })
+              .eq('id', ticket.id);
+            if (!moveError) {
+              await supabase.from('update_logs').insert([{
+                ticket_id: ticket.id,
+                author_id: ticket.reporter_id, // System action, attributed to reporter
+                comment: `Jira ticket moved: ${storedKey} → ${currentKey} (link updated automatically)`,
+                previous_status: ticket.status,
+                new_status: ticket.status,
+                hold_target_date: null,
+              }]);
+            }
+          }
 
           const newJiraStatus = data.status as string;
           const oldJiraStatus = ticket.jira_status;

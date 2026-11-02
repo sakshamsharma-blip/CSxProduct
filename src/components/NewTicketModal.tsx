@@ -1,7 +1,8 @@
 import { useState } from 'react';
-import { TicketSubType, Priority } from '../types';
+import { TicketSubType, Priority, getStatusLabel } from '../types';
 import { useAuth } from '../hooks/useAuth';
-import { createTicket } from '../lib/actions';
+import { createTicket, findPossibleDuplicates, DuplicateMatch } from '../lib/actions';
+import { extractJiraKey } from '../lib/jiraUtils';
 
 interface NewTicketModalProps {
   isOpen: boolean;
@@ -20,6 +21,8 @@ export function NewTicketModal({ isOpen, onClose, onCreated }: NewTicketModalPro
   const [freshdeskId, setFreshdeskId] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  // Possible duplicates found on the first "Create" click; a second click creates anyway
+  const [duplicates, setDuplicates] = useState<DuplicateMatch[] | null>(null);
 
   if (!isOpen) return null;
 
@@ -31,6 +34,18 @@ export function NewTicketModal({ isOpen, onClose, onCreated }: NewTicketModalPro
     setError('');
 
     try {
+      if (duplicates === null) {
+        const found = await findPossibleDuplicates({
+          jira: freshdeskId.trim() || null,
+          clientId: clientId.trim(),
+          subject: subject.trim(),
+        });
+        if (found.length > 0) {
+          setDuplicates(found);
+          setLoading(false);
+          return; // show the warning; the next click creates anyway
+        }
+      }
       await createTicket({
         lab_name: labName.trim(),
         client_id: clientId.trim(),
@@ -49,6 +64,7 @@ export function NewTicketModal({ isOpen, onClose, onCreated }: NewTicketModalPro
       setSubType(TicketSubType.BUG);
       setPriority(Priority.MEDIUM);
       setFreshdeskId('');
+      setDuplicates(null);
       onCreated();
       onClose();
     } catch (err: unknown) {
@@ -98,7 +114,7 @@ export function NewTicketModal({ isOpen, onClose, onCreated }: NewTicketModalPro
                 id="clientId"
                 type="text"
                 value={clientId}
-                onChange={e => setClientId(e.target.value)}
+                onChange={e => { setClientId(e.target.value); setDuplicates(null); }}
                 required
                 className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-600"
                 placeholder="e.g. CL-2045"
@@ -113,7 +129,7 @@ export function NewTicketModal({ isOpen, onClose, onCreated }: NewTicketModalPro
                 id="subject"
                 type="text"
                 value={subject}
-                onChange={e => setSubject(e.target.value)}
+                onChange={e => { setSubject(e.target.value); setDuplicates(null); }}
                 required
                 className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-600"
                 placeholder="Brief issue title"
@@ -176,13 +192,30 @@ export function NewTicketModal({ isOpen, onClose, onCreated }: NewTicketModalPro
               </label>
               <input
                 id="freshdeskId"
-                type="url"
+                type="text"
                 value={freshdeskId}
-                onChange={e => setFreshdeskId(e.target.value)}
+                onChange={e => { setFreshdeskId(e.target.value); setDuplicates(null); }}
                 className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-600"
-                placeholder="https://creliohealth.freshdesk.com/a/tickets/12345"
+                placeholder="EN-1234, or a Jira / Freshdesk link"
               />
             </div>
+
+            {duplicates && duplicates.length > 0 && (
+              <div className="bg-amber-50 border border-amber-200 text-amber-900 px-3 py-2 rounded-md text-sm">
+                <p className="font-medium mb-1">This may already be in Flow:</p>
+                <ul className="list-disc ml-5 space-y-0.5">
+                  {duplicates.map(d => (
+                    <li key={d.id}>
+                      <span className="font-mono">{extractJiraKey(d.freshdesk_id) ?? d.custom_id}</span>
+                      {extractJiraKey(d.freshdesk_id) && <span className="font-mono text-xs text-amber-700"> ({d.custom_id})</span>}
+                      {' '}— {d.subject} · {getStatusLabel(d)}
+                      <span className="text-xs text-amber-700"> · {d.reason === 'same_jira' ? 'same Jira ticket' : 'same client & subject'}</span>
+                    </li>
+                  ))}
+                </ul>
+                <p className="text-xs mt-1">Add a comment on the existing ticket instead, or click "Create anyway".</p>
+              </div>
+            )}
 
             {error && (
               <div className="bg-red-50 text-red-700 px-3 py-2 rounded-md text-sm">
@@ -196,7 +229,7 @@ export function NewTicketModal({ isOpen, onClose, onCreated }: NewTicketModalPro
                 disabled={loading}
                 className="flex-1 bg-green-600 text-white py-2 px-4 rounded-md text-sm font-medium hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
               >
-                {loading ? 'Creating...' : 'Create Request'}
+                {loading ? 'Checking...' : duplicates?.length ? 'Create anyway' : 'Create Request'}
               </button>
               <button
                 type="button"

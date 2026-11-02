@@ -22,6 +22,13 @@ export function Dashboard({ onNavigateAnalytics, onNavigateUsers, onNavigateActi
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedTicket, setSelectedTicket] = useState<Ticket | null>(null);
   const [showNewModal, setShowNewModal] = useState(false);
+  const [overdueOnly, setOverdueOnly] = useState(false);
+
+  // Clicking the overdue banner shows exactly those tickets
+  function showOverdue() {
+    setActiveTab('all');
+    setOverdueOnly(true);
+  }
 
   const userRole = (appUser?.role as UserRole) || UserRole.CS_MANAGER;
   const userId = appUser?.id || '';
@@ -97,10 +104,13 @@ export function Dashboard({ onNavigateAnalytics, onNavigateUsers, onNavigateActi
             </p>
           )}
           {slaBreachCount > 0 && (
-            <p className="text-sm text-red-700">
+            <button type="button" onClick={showOverdue}
+              className="text-sm text-red-700 text-left hover:underline focus:outline-none focus:ring-2 focus:ring-red-400 rounded"
+              title="Show only these tickets">
               <span className="font-semibold">🔴 {slaBreachCount} ticket{slaBreachCount > 1 ? 's' : ''}</span>
-              {' '}overdue for weekly update (7+ days without activity).
-            </p>
+              {' '}overdue for weekly update (7+ days without activity).{' '}
+              <span className="font-medium">{overdueOnly ? 'Showing them below' : 'Show them →'}</span>
+            </button>
           )}
         </div>
       )}
@@ -113,6 +123,9 @@ export function Dashboard({ onNavigateAnalytics, onNavigateUsers, onNavigateActi
           onSelectTicket={handleSelectTicket}
           selectedTicketId={selectedTicket?.id || null}
           attentionFlags={attentionFlags}
+          allTickets={visibleTickets}
+          overdueOnly={overdueOnly}
+          onOverdueChange={setOverdueOnly}
         />
       </div>
 

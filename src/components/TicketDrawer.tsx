@@ -9,8 +9,8 @@ import {
 } from '../types';
 import { useAuth } from '../hooks/useAuth';
 import { useTicketLogs, useAllUsers } from '../hooks/useTickets';
-import { getAvailableTransitions, canPostUpdate, canChangePriority, canChangeSprintStatus, canRevertLastAction, canChangeAssignee } from '../lib/stateMachine';
-import { transitionTicket, postProgressUpdate, changePriority, changeSprintStatus, changeAssignee, revertLastAction, addComment, batchSave, BatchAction } from '../lib/actions';
+import { getAvailableTransitions, canPostUpdate, canChangePriority, canChangeSprintStatus, canRevertLastAction, canChangeAssignee, canLinkJira } from '../lib/stateMachine';
+import { revertLastAction, addComment, batchSave, BatchAction, changeJiraLink, findPossibleDuplicates, DuplicateMatch } from '../lib/actions';
 import { extractJiraKey, getJiraUrl } from '../lib/jiraUtils';
 
 interface TicketDrawerProps {
@@ -48,6 +48,11 @@ export function TicketDrawer({ ticket, onClose, onUpdate }: TicketDrawerProps) {
   const [pendingAssignee, setPendingAssignee] = useState<string | null>(null);
   const [pendingTransition, setPendingTransition] = useState<TicketStatus | null>(null);
 
+  // Jira link editing
+  const [editingJira, setEditingJira] = useState(false);
+  const [jiraInput, setJiraInput] = useState('');
+  const [jiraDuplicates, setJiraDuplicates] = useState<DuplicateMatch[]>([]);
+
   // Reset pending state when ticket changes
   useEffect(() => {
     setPendingActions([]);
@@ -58,6 +63,9 @@ export function TicketDrawer({ ticket, onClose, onUpdate }: TicketDrawerProps) {
     setComment('');
     setHoldDate('');
     setError('');
+    setEditingJira(false);
+    setJiraInput('');
+    setJiraDuplicates([]);
   }, [ticket?.id]);
 
   if (!ticket || !appUser) return null;
@@ -72,6 +80,8 @@ export function TicketDrawer({ ticket, onClose, onUpdate }: TicketDrawerProps) {
   const showSprintStatus = canChangeSprintStatus(ticket!.status as TicketStatus, userRole);
   const showRevert = canRevertLastAction(userRole);
   const showAssignee = canChangeAssignee(userRole);
+  const showJiraEdit = canLinkJira(userRole, userId, reporterId);
+  const jiraKey = extractJiraKey(ticket.freshdesk_id);
 
   const productUsers = allUsers.filter(u => PRODUCT_ROLES.includes(u.role as UserRole));
   const hasPendingChanges = pendingActions.length > 0 || pendingPriority || pendingSprint || pendingAssignee || pendingTransition;
@@ -154,6 +164,7 @@ export function TicketDrawer({ ticket, onClose, onUpdate }: TicketDrawerProps) {
         ticketId: ticket!.id,
         currentStatus: ticket!.status as TicketStatus,
         userId: appUser!.id,
+        userRole,
         comment: comment.trim(),
       });
       setComment('');
@@ -165,27 +176,34 @@ export function TicketDrawer({ ticket, onClose, onUpdate }: TicketDrawerProps) {
     setActionLoading(false);
   }
 
-  // Post progress update (resets SLA timer)
-  async function handlePostUpdate() {
-    if (!comment.trim()) {
-      setError('Please add a comment for the progress update.');
-      return;
+  // Change / remove the Jira link (e.g. when a Jira ticket moves from EA to EN)
+  async function handleSaveJira(confirmed = false) {
+    setError('');
+    const raw = jiraInput.trim();
+    if (raw && !confirmed) {
+      const dups = await findPossibleDuplicates({ jira: raw, excludeTicketId: ticket!.id });
+      if (dups.length > 0) {
+        setJiraDuplicates(dups);
+        return; // show the warning, wait for "Link anyway"
+      }
     }
     setActionLoading(true);
-    setError('');
     try {
-      await postProgressUpdate({
+      await changeJiraLink({
         ticketId: ticket!.id,
         currentStatus: ticket!.status as TicketStatus,
+        oldLink: ticket!.freshdesk_id,
+        newInput: raw,
         userId: appUser!.id,
         userRole,
-        comment: comment.trim(),
+        reporterId: ticket!.reporter_id,
       });
-      setComment('');
+      setEditingJira(false);
+      setJiraDuplicates([]);
       await refetchLogs();
       onUpdate();
     } catch (err: unknown) {
-      setError(describeError(err, 'Action failed'));
+      setError(describeError(err, 'Failed to change the Jira link'));
     }
     setActionLoading(false);
   }
@@ -214,7 +232,15 @@ export function TicketDrawer({ ticket, onClose, onUpdate }: TicketDrawerProps) {
       <div className="p-4 border-b border-gray-200 flex items-start justify-between gap-3">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-1 flex-wrap">
-            <span className="font-mono text-sm text-gray-500">{ticket.custom_id}</span>
+            {jiraKey ? (
+              <>
+                <a href={getJiraUrl(ticket.freshdesk_id)!} target="_blank" rel="noopener noreferrer"
+                  className="font-mono text-sm font-semibold text-blue-700 hover:underline">{jiraKey}</a>
+                <span className="font-mono text-xs text-gray-400">{ticket.custom_id}</span>
+              </>
+            ) : (
+              <span className="font-mono text-sm text-gray-500">{ticket.custom_id}</span>
+            )}
             <span className={`px-2 py-0.5 rounded text-xs font-medium ${PRIORITY_COLORS[pendingPriority || ticket!.priority as Priority]}`}>
               {pendingPriority || ticket!.priority}
             </span>
@@ -257,13 +283,47 @@ export function TicketDrawer({ ticket, onClose, onUpdate }: TicketDrawerProps) {
                 ? (allUsers.find(u => u.id === ticket.assignee_id)?.full_name || 'Unassigned')
                 : 'Unassigned'
             }</div>
-            <div>
+            <div className={editingJira ? 'col-span-2' : ''}>
               <span className="font-medium">JIRA:</span>{' '}
-              {ticket.freshdesk_id ? (
-                <a href={getJiraUrl(ticket.freshdesk_id)!} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:text-blue-800 hover:underline">
-                  {extractJiraKey(ticket.freshdesk_id) || 'Open Ticket'} ↗
-                </a>
-              ) : '—'}
+              {editingJira ? (
+                <div className="mt-1">
+                  <div className="flex gap-1">
+                    <input type="text" value={jiraInput} autoFocus
+                      onChange={e => { setJiraInput(e.target.value); setJiraDuplicates([]); }}
+                      onKeyDown={e => { if (e.key === 'Enter') handleSaveJira(); if (e.key === 'Escape') setEditingJira(false); }}
+                      placeholder="EN-1234 or Jira link (empty = remove)"
+                      className="flex-1 px-2 py-1 border border-gray-300 rounded text-xs focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                    <button onClick={() => handleSaveJira()} disabled={actionLoading}
+                      className="px-2 py-1 rounded text-xs font-medium bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50">Save</button>
+                    <button onClick={() => { setEditingJira(false); setJiraDuplicates([]); }}
+                      className="px-2 py-1 rounded text-xs border border-gray-300 text-gray-600 hover:bg-gray-50">Cancel</button>
+                  </div>
+                  {jiraDuplicates.length > 0 && (
+                    <div className="mt-2 bg-amber-50 border border-amber-200 text-amber-800 rounded px-2 py-1.5">
+                      <p className="font-medium">This Jira ticket is already linked to:</p>
+                      <ul className="list-disc ml-4">
+                        {jiraDuplicates.map(d => <li key={d.id}>{d.custom_id} — {d.subject} ({getStatusLabel(d)})</li>)}
+                      </ul>
+                      <button onClick={() => handleSaveJira(true)} disabled={actionLoading}
+                        className="mt-1 text-xs font-medium text-amber-900 underline">Link anyway</button>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <>
+                  {ticket.freshdesk_id ? (
+                    <a href={getJiraUrl(ticket.freshdesk_id)!} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:text-blue-800 hover:underline">
+                      {jiraKey || 'Open Ticket'} ↗
+                    </a>
+                  ) : '—'}
+                  {showJiraEdit && (
+                    <button onClick={() => { setJiraInput(jiraKey || ticket.freshdesk_id || ''); setEditingJira(true); }}
+                      className="ml-2 text-blue-600 hover:text-blue-800 font-medium" aria-label="Edit Jira link">
+                      {ticket.freshdesk_id ? 'Edit' : 'Add'}
+                    </button>
+                  )}
+                </>
+              )}
             </div>
             <div><span className="font-medium">Created:</span> {format(new Date(ticket.created_at), 'dd MMM yyyy, HH:mm')}</div>
             <div><span className="font-medium">Updated:</span> {formatDistanceToNow(new Date(ticket.updated_at), { addSuffix: true })}</div>
@@ -397,17 +457,6 @@ export function TicketDrawer({ ticket, onClose, onUpdate }: TicketDrawerProps) {
               </div>
             )}
 
-            {/* Post weekly update */}
-            {showPostUpdate && (
-              <button
-                onClick={handlePostUpdate}
-                disabled={actionLoading}
-                className="px-3 py-1.5 rounded-md text-xs font-medium bg-blue-500 text-white hover:bg-blue-600 disabled:opacity-50 transition-colors"
-              >
-                Post Weekly Update
-              </button>
-            )}
-
             {/* Revert */}
             {showRevert && (
               <button
@@ -419,6 +468,12 @@ export function TicketDrawer({ ticket, onClose, onUpdate }: TicketDrawerProps) {
               </button>
             )}
           </div>
+
+          {showPostUpdate && (
+            <p className="text-xs text-gray-500 mb-2">
+              Your comment counts as this week's update and resets the 7-day timer.
+            </p>
+          )}
 
           {/* Save + Comment buttons */}
           <div className="flex gap-2">

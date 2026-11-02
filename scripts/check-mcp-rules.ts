@@ -56,6 +56,10 @@ for (const role of Object.values(mcp.UserRole)) {
     same(`canChangePriority ${role} sprint=${sprint}`, app.canChangePriority(role as never, sprint), mcp.canChangePriority(role, sprint));
   }
   same(`canChangeAssignee ${role}`, app.canChangeAssignee(role as never), mcp.canChangeAssignee(role));
+  for (const reporter of [ME, 'someone-else']) {
+    same(`canEditDetails ${role} reporter=${reporter === ME}`, app.canEditDetails(role as never, ME, reporter), mcp.canEditDetails(role, ME, reporter));
+    same(`canLinkJira ${role} reporter=${reporter === ME}`, app.canLinkJira(role as never, ME, reporter), mcp.canLinkJira(role, ME, reporter));
+  }
   same(`canRevert ${role} (mcp has no revert; app should match ALL_ACTION_ROLES)`,
     app.canRevertLastAction(role as never), mcp.ALL_ACTION_ROLES.includes(role));
 }
@@ -64,6 +68,7 @@ for (const role of Object.values(mcp.UserRole)) {
 for (const input of ['', '  ', 'EA-123', 'ea-9', 'https://crelio.atlassian.net/browse/EN-4', 'random text', null]) {
   same(`normalizeJiraInput(${JSON.stringify(input)})`, appJira.normalizeJiraInput(input), mcp.normalizeJiraInput(input));
   same(`extractJiraKey(${JSON.stringify(input)})`, appJira.extractJiraKey(input), mcp.extractJiraKey(input));
+  same(`displayId(${JSON.stringify(input)})`, appJira.displayId({ custom_id: 'REQ-1', freshdesk_id: input }), mcp.displayId({ custom_id: 'REQ-1', freshdesk_id: input }));
 }
 
 if (failures > 0) {

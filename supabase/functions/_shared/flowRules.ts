@@ -272,6 +272,16 @@ export function extractJiraKey(input: string | null): string | null {
   return match ? match[1].toUpperCase() : null;
 }
 
+/** The ID people should see: the Jira key when one is linked, else Flow's REQ-#### ID. */
+export function displayId(t: { custom_id: string; freshdesk_id: string | null }): string {
+  return extractJiraKey(t.freshdesk_id) ?? t.custom_id;
+}
+
+/** True when the input is a Jira key like EA-1234 (and not a Flow REQ-#### ID). */
+export function isJiraKey(input: string): boolean {
+  return /^[A-Z][A-Z0-9]+-\d+$/i.test(input.trim()) && !/^REQ-/i.test(input.trim());
+}
+
 // ===== Analytics (mirror of src/lib/analytics.ts, without date-fns) =====
 export type TimePeriod = 'this_week' | 'mtd' | 'ytd' | 'all_time' | 'custom';
 

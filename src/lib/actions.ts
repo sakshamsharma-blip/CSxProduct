@@ -1,7 +1,7 @@
 import { supabase } from './supabase';
 import { TicketStatus, TicketSubType, Priority, SprintStatus, UserRole } from '../types';
-import { canTransition, canPostUpdate, canChangePriority, canChangeSprintStatus, canRevertLastAction, canChangeAssignee, isReopenTransition } from './stateMachine';
-import { normalizeJiraInput } from './jiraUtils';
+import { canTransition, canPostUpdate, canChangePriority, canChangeSprintStatus, canRevertLastAction, canChangeAssignee, isReopenTransition, canLinkJira } from './stateMachine';
+import { normalizeJiraInput, extractJiraKey } from './jiraUtils';
 
 // ===== CREATE TICKET =====
 
@@ -172,20 +172,32 @@ interface AddCommentParams {
   ticketId: string;
   currentStatus: TicketStatus;
   userId: string;
+  userRole: UserRole;
   comment: string;
 }
 
+/** True when a comment from this role on a ticket in this stage counts as the weekly update. */
+export function commentCountsAsUpdate(currentStatus: TicketStatus, userRole: UserRole): boolean {
+  return canPostUpdate(currentStatus, userRole);
+}
+
 export async function addComment(params: AddCommentParams) {
-  const { ticketId, currentStatus, userId, comment } = params;
+  const { ticketId, currentStatus, userId, userRole, comment } = params;
 
   if (!comment.trim()) {
     throw new Error('Comment cannot be empty.');
   }
 
-  // Update latest_comment on ticket
+  // Update latest_comment on ticket. On product-stage tickets a comment from an
+  // action role also counts as the weekly update (resets the 7-day clock), so
+  // people don't have to remember a separate "Post Weekly Update" button.
+  const ticketUpdate: Record<string, unknown> = { latest_comment: comment.trim() };
+  if (commentCountsAsUpdate(currentStatus, userRole)) {
+    ticketUpdate.last_product_activity_at = new Date().toISOString();
+  }
   const { error: ticketError } = await supabase
     .from('tickets')
-    .update({ latest_comment: comment.trim() })
+    .update(ticketUpdate)
     .eq('id', ticketId);
 
   if (ticketError) throw ticketError;
@@ -414,9 +426,12 @@ export async function batchSave(params: BatchSaveParams) {
     }
   }
 
-  // Update latest_comment if provided
+  // Update latest_comment if provided; a note on a product-stage ticket counts as the weekly update
   if (comment.trim()) {
     ticketUpdate.latest_comment = comment.trim();
+    if (commentCountsAsUpdate(currentStatus, userRole)) {
+      ticketUpdate.last_product_activity_at = new Date().toISOString();
+    }
   }
 
   // Apply all ticket changes in one update
@@ -550,5 +565,111 @@ export async function revertLastAction(params: RevertParams) {
       hold_target_date: null,
     }]);
 
+  if (logError) throw logError;
+}
+
+// ===== DUPLICATE CHECKS =====
+
+export interface DuplicateMatch {
+  id: string;
+  custom_id: string;
+  freshdesk_id: string | null;
+  subject: string;
+  status: TicketStatus;
+  is_reopened: boolean;
+  reason: 'same_jira' | 'same_subject';
+}
+
+/**
+ * Tickets that look like the one being created or linked:
+ *  - already linked to the same Jira key (any stage), or
+ *  - same client ID and same subject, still open.
+ */
+export async function findPossibleDuplicates(opts: {
+  jira?: string | null;
+  clientId?: string;
+  subject?: string;
+  excludeTicketId?: string;
+}): Promise<DuplicateMatch[]> {
+  const cols = 'id, custom_id, freshdesk_id, subject, status, is_reopened, client_id';
+  const out: DuplicateMatch[] = [];
+  const key = extractJiraKey(normalizeJiraInput(opts.jira ?? null));
+
+  if (key) {
+    const { data } = await supabase.from('tickets').select(cols).ilike('freshdesk_id', `%${key}%`);
+    for (const t of data ?? []) {
+      if (extractJiraKey(t.freshdesk_id) === key && t.id !== opts.excludeTicketId) {
+        out.push({ ...t, reason: 'same_jira' } as DuplicateMatch);
+      }
+    }
+  }
+
+  if (opts.clientId?.trim() && opts.subject?.trim()) {
+    const norm = (v: string) => v.trim().toLowerCase().replace(/\s+/g, ' ');
+    const { data } = await supabase.from('tickets').select(cols)
+      .ilike('client_id', opts.clientId.trim())
+      .neq('status', TicketStatus.CLOSED);
+    for (const t of data ?? []) {
+      if (norm(t.subject) === norm(opts.subject) && t.id !== opts.excludeTicketId && !out.some(o => o.id === t.id)) {
+        out.push({ ...t, reason: 'same_subject' } as DuplicateMatch);
+      }
+    }
+  }
+  return out;
+}
+
+// ===== CHANGE JIRA LINK =====
+
+interface ChangeJiraLinkParams {
+  ticketId: string;
+  currentStatus: TicketStatus;
+  oldLink: string | null;
+  newInput: string;
+  userId: string;
+  userRole: UserRole;
+  reporterId: string;
+}
+
+/** Sets, replaces or removes (empty input) the Jira link and records old → new on the timeline. */
+export async function changeJiraLink(params: ChangeJiraLinkParams) {
+  const { ticketId, currentStatus, oldLink, newInput, userId, userRole, reporterId } = params;
+
+  if (!canLinkJira(userRole, userId, reporterId)) {
+    throw new Error('Only the ticket creator, CS Lead, Product or Admin can change the Jira link.');
+  }
+
+  const raw = newInput.trim();
+  if (raw && !/^https?:\/\//i.test(raw) && !/^[A-Z][A-Z0-9]+-\d+$/i.test(raw)) {
+    throw new Error(`"${raw}" isn't a Jira key (like EN-1234) or a link.`);
+  }
+  const link = raw ? normalizeJiraInput(raw) : null;
+  if ((link ?? null) === (oldLink ?? null)) return;
+
+  const { error: ticketError } = await supabase
+    .from('tickets')
+    .update({
+      freshdesk_id: link,
+      // The stored Jira status belonged to the old link; the next sync fills in the new one.
+      jira_status: null,
+      last_jira_status_change_at: null,
+    })
+    .eq('id', ticketId);
+  if (ticketError) throw ticketError;
+
+  const label = (v: string | null) => (v ? (extractJiraKey(v) ?? v) : 'none');
+  const what = link
+    ? (oldLink ? `Jira link changed: ${label(oldLink)} → ${label(link)}` : `Jira linked: ${label(link)}`)
+    : `Jira link removed (was ${label(oldLink)})`;
+
+  const { error: logError } = await supabase
+    .from('update_logs')
+    .insert([{
+      ticket_id: ticketId,
+      author_id: userId,
+      comment: what,
+      previous_status: currentStatus,
+      new_status: currentStatus,
+      hold_target_date: null,
+    }]);
   if (logError) throw logError;
 }
