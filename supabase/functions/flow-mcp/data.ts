@@ -46,6 +46,8 @@ export interface TicketRow {
   latest_comment: string | null;
   jira_status: string | null;
   last_jira_status_change_at: string | null;
+  jira_assignee: string | null;
+  jira_synced_at: string | null;
   created_at: string;
   updated_at: string;
   reporter: PersonRef | null;
@@ -67,7 +69,7 @@ export interface LogRow {
 export const TICKET_SELECT =
   'id, custom_id, lab_name, client_id, subject, description, sub_type, priority, status, sprint_status, ' +
   'freshdesk_id, hold_until_date, last_product_activity_at, is_reopened, reopen_count, sla_breach_count, ' +
-  'reporter_id, assignee_id, latest_comment, jira_status, last_jira_status_change_at, created_at, updated_at, ' +
+  'reporter_id, assignee_id, latest_comment, jira_status, last_jira_status_change_at, jira_assignee, jira_synced_at, created_at, updated_at, ' +
   'reporter:app_users!reporter_id(id, full_name, email), assignee:app_users!assignee_id(id, full_name, email)';
 
 /** A tool-level failure whose message is safe and useful to show the user. */
@@ -254,6 +256,8 @@ export function ticketDetail(t: TicketRow, now = new Date()) {
     description: t.description || null,
     latest_comment: t.latest_comment,
     jira_link: t.freshdesk_id,
+    jira_assignee: t.jira_assignee,
+    jira_data_as_of: t.jira_synced_at,
     created_by_email: t.reporter?.email ?? null,
     assignee_email: t.assignee?.email ?? null,
     reopen_count: t.reopen_count,

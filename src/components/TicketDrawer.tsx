@@ -330,6 +330,12 @@ export function TicketDrawer({ ticket, onClose, onUpdate }: TicketDrawerProps) {
             {ticket.jira_status && (
               <div><span className="font-medium">JIRA Status:</span> <span className="px-1.5 py-0.5 bg-blue-50 text-blue-700 rounded text-xs">{ticket.jira_status}</span></div>
             )}
+            {ticket.freshdesk_id && jiraKey && (
+              <div><span className="font-medium">JIRA Assignee:</span> {ticket.jira_assignee || 'Unassigned'}</div>
+            )}
+            {ticket.jira_synced_at && (
+              <div className="col-span-2 text-gray-400">Jira data as of {formatDistanceToNow(new Date(ticket.jira_synced_at), { addSuffix: true })}</div>
+            )}
             {ticket.hold_until_date && (
               <div className="col-span-2">
                 <span className="font-medium">On Hold Until:</span> {format(new Date(ticket.hold_until_date), 'dd MMM yyyy')}

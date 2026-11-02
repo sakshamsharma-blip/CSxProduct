@@ -1,6 +1,5 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
-import { syncJiraStatuses } from '../lib/jiraSync';
 import { Ticket, UpdateLog, TicketStatus, QueueTab, UserRole, SortConfig, FilterConfig, Priority, TicketSubType, PRIORITY_ORDER } from '../types';
 
 export function useTickets() {
@@ -78,22 +77,9 @@ export function useTickets() {
     fetchTickets();
   }, [fetchTickets]);
 
-  // Sync JIRA statuses in background after tickets load (run once only)
-  const jiraSyncRan = useRef(false);
-  useEffect(() => {
-    if (tickets.length > 0 && !jiraSyncRan.current) {
-      jiraSyncRan.current = true;
-      syncJiraStatuses(tickets).then(() => {
-        supabase
-          .from('tickets')
-          .select('*, reporter:app_users!reporter_id(*)')
-          .order('created_at', { ascending: false })
-          .then(({ data }) => {
-            if (data) setTickets(data as Ticket[]);
-          });
-      });
-    }
-  }, [tickets.length]);
+  // Jira status is no longer fetched here: the jira-sync-all server job keeps
+  // the stored Jira columns up to date every 15 minutes, so the page only
+  // reads Flow's own database.
 
   return { tickets, loading, error, refetch: fetchTickets, holdExpiredCount };
 }

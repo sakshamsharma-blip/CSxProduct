@@ -672,4 +672,16 @@ export async function changeJiraLink(params: ChangeJiraLinkParams) {
       hold_target_date: null,
     }]);
   if (logError) throw logError;
+
+  // Fetch the new Jira ticket's status now instead of waiting for the 15-minute sync.
+  if (link) await refreshJiraForTicket(ticketId);
+}
+
+/** Asks the server to re-read one ticket from Jira (best effort; the 15-minute sync covers failures). */
+export async function refreshJiraForTicket(ticketId: string) {
+  try {
+    await supabase.functions.invoke('jira-sync-all', { body: { ticket_id: ticketId } });
+  } catch {
+    // Non-critical: the background sync will pick it up.
+  }
 }
