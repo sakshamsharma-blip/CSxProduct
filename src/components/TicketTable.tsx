@@ -7,7 +7,7 @@ import {
   REOPENED_LABEL, REOPENED_COLOR
 } from '../types';
 import { needsWeeklyUpdate, isHoldExpired, getDaysSinceCreated, sortTickets, applyFilters, AttentionFlag, ticketNeedsAttention, useAllUsers, downloadExcel } from '../hooks/useTickets';
-import { extractJiraKey, getJiraUrl } from '../lib/jiraUtils';
+import { extractJiraKey, getJiraUrl, findDuplicateGroups } from '../lib/jiraUtils';
 
 interface TicketTableProps {
   tickets: Ticket[];
@@ -21,6 +21,8 @@ interface TicketTableProps {
   /** Overdue-only toggle is controlled by the page so the banner can switch it on. */
   overdueOnly: boolean;
   onOverdueChange: (value: boolean) => void;
+  /** Show every ticket sharing this Jira key (resets tab + filters, searches the key). */
+  onShowDuplicates?: (jiraKey: string) => void;
 }
 
 // Order of options in the status picker
@@ -37,7 +39,7 @@ const STATUS_FILTER_OPTIONS: { value: StatusFilterValue; label: string }[] = [
   { value: TicketStatus.CLOSED, label: STATUS_LABELS[TicketStatus.CLOSED] },
 ];
 
-export function TicketTable({ tickets, searchQuery, onSearchChange, onSelectTicket, selectedTicketId, attentionFlags = [], allTickets, overdueOnly, onOverdueChange }: TicketTableProps) {
+export function TicketTable({ tickets, searchQuery, onSearchChange, onSelectTicket, selectedTicketId, attentionFlags = [], allTickets, overdueOnly, onOverdueChange, onShowDuplicates }: TicketTableProps) {
   // Default sort by priority (Critical first)
   const [sort, setSort] = useState<SortConfig>({ field: 'priority', direction: 'asc' });
   const [baseFilters, setFilters] = useState<FilterConfig>(EMPTY_FILTERS);
@@ -62,15 +64,17 @@ export function TicketTable({ tickets, searchQuery, onSearchChange, onSelectTick
     }));
   }
 
-  // Jira keys linked to more than one Flow ticket → shown as "Duplicate"
-  const duplicateKeys = useMemo(() => {
-    const counts = new Map<string, number>();
-    for (const t of allTickets ?? tickets) {
-      const k = extractJiraKey(t.freshdesk_id);
-      if (k) counts.set(k, (counts.get(k) ?? 0) + 1);
-    }
-    return new Set([...counts.entries()].filter(([, n]) => n > 1).map(([k]) => k));
-  }, [allTickets, tickets]);
+  // Duplicate = same Jira key on 2+ tickets that aren't Closed, compared across ALL tickets
+  const duplicateKeys = useMemo(
+    () => new Set(findDuplicateGroups(allTickets ?? tickets).keys()),
+    [allTickets, tickets],
+  );
+
+  // Clicking the Duplicate badge lists every ticket sharing that Jira key
+  function showDuplicates(key: string) {
+    setFilters(EMPTY_FILTERS);
+    onShowDuplicates?.(key);
+  }
 
   const overdueCount = tickets.filter(t => needsWeeklyUpdate(t)).length;
   const statusButtonLabel = filters.statuses.length === 0
@@ -316,8 +320,12 @@ export function TicketTable({ tickets, searchQuery, onSearchChange, onSelectTick
                       )}
                       {ticket.is_reopened && <span className="ml-1 text-red-600" title="Reopened">🔄</span>}
                       {jiraKey && duplicateKeys.has(jiraKey) && (
-                        <span className="ml-1 px-1 py-0.5 rounded bg-amber-100 text-amber-800 text-[10px] font-sans font-medium"
-                          title={`${jiraKey} is linked to more than one Flow ticket`}>Duplicate</span>
+                        <button type="button"
+                          onClick={e => { e.stopPropagation(); showDuplicates(jiraKey); }}
+                          className="ml-1 px-1 py-0.5 rounded bg-amber-100 text-amber-800 text-[10px] font-sans font-medium hover:bg-amber-200 focus:outline-none focus:ring-2 focus:ring-amber-400"
+                          title={`${jiraKey} is linked to more than one open Flow ticket — click to see them all`}>
+                          Duplicate
+                        </button>
                       )}
                       {jiraKey && <div className="text-[10px] text-gray-400">{ticket.custom_id}</div>}
                     </td>

@@ -62,3 +62,20 @@ export function displayId(ticket: { custom_id: string; freshdesk_id: string | nu
 export function isJiraKey(input: string): boolean {
   return /^[A-Z][A-Z0-9]+-\d+$/i.test(input.trim()) && !/^REQ-/i.test(input.trim());
 }
+
+/**
+ * Duplicate rule: the same Jira key on more than one Flow ticket that is not Closed.
+ * Returns key → the open tickets sharing it (only keys with 2+ tickets).
+ * Pass ALL tickets (not just the ones the current user's list shows).
+ */
+export function findDuplicateGroups<T extends { status: string; freshdesk_id: string | null }>(tickets: T[]): Map<string, T[]> {
+  const groups = new Map<string, T[]>();
+  for (const t of tickets) {
+    if (t.status === 'CLOSED') continue;
+    const k = extractJiraKey(t.freshdesk_id);
+    if (!k) continue;
+    groups.set(k, [...(groups.get(k) ?? []), t]);
+  }
+  for (const [k, list] of groups) if (list.length < 2) groups.delete(k);
+  return groups;
+}

@@ -582,7 +582,7 @@ export interface DuplicateMatch {
 
 /**
  * Tickets that look like the one being created or linked:
- *  - already linked to the same Jira key (any stage), or
+ *  - already linked to the same Jira key (open tickets only — Closed ones don't count), or
  *  - same client ID and same subject, still open.
  */
 export async function findPossibleDuplicates(opts: {
@@ -596,7 +596,8 @@ export async function findPossibleDuplicates(opts: {
   const key = extractJiraKey(normalizeJiraInput(opts.jira ?? null));
 
   if (key) {
-    const { data } = await supabase.from('tickets').select(cols).ilike('freshdesk_id', `%${key}%`);
+    const { data } = await supabase.from('tickets').select(cols).ilike('freshdesk_id', `%${key}%`)
+      .neq('status', TicketStatus.CLOSED);
     for (const t of data ?? []) {
       if (extractJiraKey(t.freshdesk_id) === key && t.id !== opts.excludeTicketId) {
         out.push({ ...t, reason: 'same_jira' } as DuplicateMatch);

@@ -129,14 +129,17 @@ export async function findTicket(ctx: Ctx, ref: string): Promise<TicketRow> {
     const { data, error } = await ctx.db.from('tickets').select(TICKET_SELECT).ilike('freshdesk_id', `%${key}%`);
     if (error) throw dbError(error, `load ${key}`);
     // ilike "EA-15" would also match "EA-150", so keep exact key matches only.
-    const matches = ((data ?? []) as unknown as TicketRow[])
+    const all = ((data ?? []) as unknown as TicketRow[])
       .filter(t => extractJiraKey(t.freshdesk_id) === key && isTicketVisible(t, ctx.me.role, ctx.me.id));
+    // Closed tickets don't count as duplicates: prefer the open one(s).
+    const open = all.filter(t => t.status !== TicketStatus.CLOSED);
+    const matches = open.length > 0 ? open : all;
     if (matches.length === 0) {
       throw new UserFacingError(`No Flow ticket visible to a ${ROLE_LABELS[ctx.me.role]} is linked to ${key}.`);
     }
     if (matches.length > 1) {
       throw new UserFacingError(
-        `${key} is linked to more than one Flow ticket (${matches.map(t => `${t.custom_id}: ${STATUS_LABELS[t.status]}`).join(', ')}) — ` +
+        `${key} is linked to more than one open Flow ticket (${matches.map(t => `${t.custom_id}: ${STATUS_LABELS[t.status]}`).join(', ')}) — ` +
         `these look like duplicates. Use the Flow ID (e.g. ${matches[0].custom_id}) to pick one.`);
     }
     return matches[0];
@@ -151,10 +154,11 @@ export async function findTicket(ctx: Ctx, ref: string): Promise<TicketRow> {
   return ticket;
 }
 
-/** Other tickets already linked to the same Jira key (any stage), for duplicate warnings. */
+/** Other open (not Closed) tickets already linked to the same Jira key, for duplicate warnings. */
 export async function findTicketsByJiraKey(ctx: Ctx, key: string, excludeId?: string): Promise<TicketRow[]> {
   const k = key.toUpperCase();
-  const { data, error } = await ctx.db.from('tickets').select(TICKET_SELECT).ilike('freshdesk_id', `%${k}%`);
+  const { data, error } = await ctx.db.from('tickets').select(TICKET_SELECT).ilike('freshdesk_id', `%${k}%`)
+    .neq('status', TicketStatus.CLOSED);
   if (error) throw dbError(error, `check for tickets linked to ${k}`);
   return ((data ?? []) as unknown as TicketRow[]).filter(t => extractJiraKey(t.freshdesk_id) === k && t.id !== excludeId);
 }
