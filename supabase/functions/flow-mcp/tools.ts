@@ -211,7 +211,7 @@ export function registerTools(server: McpServer, ctx: Ctx) {
   // ------------------------------------------------------- needs_attention
   addTool(server, 'needs_attention', {
     title: 'What needs attention in Flow',
-    description: 'Tickets (visible to the user) that need action: weekly product update overdue (7+ days in In Scope / In Progress with no update or Jira change), holds whose date has passed, Critical/High tickets waiting for product review, tickets returned to CS, and the oldest open tickets.',
+    description: 'Tickets (visible to the user) that need action: weekly product update overdue (7+ days in In Scope / In Progress with no update or Jira change), tickets back from hold waiting for a decision, holds whose date has passed, Critical/High tickets waiting for product review, tickets returned to CS, and the oldest open tickets.',
     inputSchema: {},
     annotations: { readOnlyHint: true, openWorldHint: false },
   }, async () => {
@@ -222,6 +222,9 @@ export function registerTools(server: McpServer, ctx: Ctx) {
       .sort((x, y) => lastActivityAt(x).getTime() - lastActivityAt(y).getTime());
     return ok({
       weekly_update_overdue: overdue.map(t => ticketSummary(t, now)),
+      back_from_hold_waiting_for_decision: rows
+        .filter(t => t.returned_from_hold_at && t.status === TicketStatus.PENDING_PROD_REVIEW)
+        .map(t => ticketSummary(t, now)),
       hold_date_passed: rows.filter(t => isHoldExpired(t, now)).map(t => ticketSummary(t, now)),
       urgent_waiting_for_product_review: rows
         .filter(t => t.status === TicketStatus.PENDING_PROD_REVIEW && (t.priority === Priority.CRITICAL || t.priority === Priority.HIGH))
@@ -229,7 +232,7 @@ export function registerTools(server: McpServer, ctx: Ctx) {
         .map(t => ticketSummary(t, now)),
       returned_to_cs: rows.filter(t => t.status === TicketStatus.RETURNED_TO_CS).map(t => ticketSummary(t, now)),
       oldest_open: [...open].sort((x, y) => x.created_at.localeCompare(y.created_at)).slice(0, 10).map(t => ticketSummary(t, now)),
-      note: 'Expired holds are moved back to Pending Product Review automatically the next time someone opens the Flow web app.',
+      note: 'Expired holds are moved back to Pending Product Review automatically every 15 minutes and stay in back_from_hold_waiting_for_decision until someone changes their stage. hold_date_passed lists holds whose date passed in the last few minutes, before that move.',
     });
   });
 

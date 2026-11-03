@@ -48,6 +48,7 @@ export interface TicketRow {
   last_jira_status_change_at: string | null;
   jira_assignee: string | null;
   jira_synced_at: string | null;
+  returned_from_hold_at: string | null;
   created_at: string;
   updated_at: string;
   reporter: PersonRef | null;
@@ -69,7 +70,7 @@ export interface LogRow {
 export const TICKET_SELECT =
   'id, custom_id, lab_name, client_id, subject, description, sub_type, priority, status, sprint_status, ' +
   'freshdesk_id, hold_until_date, last_product_activity_at, is_reopened, reopen_count, sla_breach_count, ' +
-  'reporter_id, assignee_id, latest_comment, jira_status, last_jira_status_change_at, jira_assignee, jira_synced_at, created_at, updated_at, ' +
+  'reporter_id, assignee_id, latest_comment, jira_status, last_jira_status_change_at, jira_assignee, jira_synced_at, returned_from_hold_at, created_at, updated_at, ' +
   'reporter:app_users!reporter_id(id, full_name, email), assignee:app_users!assignee_id(id, full_name, email)';
 
 /** A tool-level failure whose message is safe and useful to show the user. */
@@ -248,6 +249,7 @@ export function ticketSummary(t: TicketRow, now = new Date()) {
     weekly_update_overdue: needsWeeklyUpdate(t, now) || undefined,
     on_hold_until: t.hold_until_date ? t.hold_until_date.slice(0, 10) : undefined,
     hold_expired: isHoldExpired(t, now) || undefined,
+    back_from_hold_waiting_for_decision: (t.returned_from_hold_at && t.status === TicketStatus.PENDING_PROD_REVIEW) ? t.returned_from_hold_at : undefined,
     latest_comment: clip(t.latest_comment, 200),
     updated_at: t.updated_at,
   };
