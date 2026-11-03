@@ -6,7 +6,8 @@ export function useTickets() {
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [holdExpiredCount, setHoldExpiredCount] = useState(0);
+  // Tickets whose hold date passed on this page load (moved back to Pending Product Review)
+  const [holdReturnedIds, setHoldReturnedIds] = useState<string[]>([]);
 
   const fetchTickets = useCallback(async () => {
     setLoading(true);
@@ -28,8 +29,8 @@ export function useTickets() {
       );
 
       if (expired.length > 0) {
-        setHoldExpiredCount(expired.length);
         const expiredIds = expired.map(t => t.id);
+        setHoldReturnedIds(prev => [...new Set([...prev, ...expiredIds])]);
 
         await supabase
           .from('tickets')
@@ -81,7 +82,7 @@ export function useTickets() {
   // the stored Jira columns up to date every 15 minutes, so the page only
   // reads Flow's own database.
 
-  return { tickets, loading, error, refetch: fetchTickets, holdExpiredCount };
+  return { tickets, loading, error, refetch: fetchTickets, holdExpiredCount: holdReturnedIds.length, holdReturnedIds };
 }
 
 // SLA breach count updater

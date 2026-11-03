@@ -16,16 +16,32 @@ interface DashboardProps {
 }
 
 export function Dashboard({ onNavigateAnalytics, onNavigateUsers, onNavigateActivity, onChangePassword }: DashboardProps) {
-  const { tickets, loading, refetch, holdExpiredCount } = useTickets();
+  const { tickets, loading, refetch, holdExpiredCount, holdReturnedIds } = useTickets();
   const { appUser } = useAuth();
   const [activeTab, setActiveTab] = useState<QueueTab>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedTicket, setSelectedTicket] = useState<Ticket | null>(null);
   const [showNewModal, setShowNewModal] = useState(false);
   const [overdueOnly, setOverdueOnly] = useState(false);
+  // When set, the list shows only these tickets (e.g. "returned from hold")
+  const [onlyIds, setOnlyIds] = useState<string[] | null>(null);
+
+  function changeTab(tab: QueueTab) {
+    setOnlyIds(null);
+    setActiveTab(tab);
+  }
+
+  // Clicking the "returned from hold" banner shows exactly those tickets
+  function showHoldReturned() {
+    setActiveTab('all');
+    setOverdueOnly(false);
+    setSearchQuery('');
+    setOnlyIds(holdReturnedIds);
+  }
 
   // Clicking a Duplicate badge lists every ticket sharing that Jira key
   function showDuplicates(jiraKey: string) {
+    setOnlyIds(null);
     setActiveTab('all');
     setOverdueOnly(false);
     setSearchQuery(jiraKey);
@@ -33,6 +49,7 @@ export function Dashboard({ onNavigateAnalytics, onNavigateUsers, onNavigateActi
 
   // Clicking the overdue banner shows exactly those tickets
   function showOverdue() {
+    setOnlyIds(null);
     setActiveTab('all');
     setOverdueOnly(true);
   }
@@ -42,7 +59,8 @@ export function Dashboard({ onNavigateAnalytics, onNavigateUsers, onNavigateActi
 
   // First apply role-based visibility, then tab filter
   const visibleTickets = getVisibleTickets(tickets, userRole, userId);
-  const filteredTickets = filterTicketsByTab(visibleTickets, activeTab, userId);
+  const tabTickets = filterTicketsByTab(visibleTickets, activeTab, userId);
+  const filteredTickets = onlyIds ? tabTickets.filter(t => onlyIds.includes(t.id)) : tabTickets;
 
   // Compute attention flags from current data (persists until action is taken)
   const attentionFlags = getAttentionTickets(visibleTickets);
@@ -95,7 +113,7 @@ export function Dashboard({ onNavigateAnalytics, onNavigateUsers, onNavigateActi
       />
       <QueueTabs
         activeTab={activeTab}
-        onTabChange={setActiveTab}
+        onTabChange={changeTab}
         tickets={visibleTickets}
         userRole={userRole}
         userId={userId}
@@ -105,10 +123,13 @@ export function Dashboard({ onNavigateAnalytics, onNavigateUsers, onNavigateActi
       {(holdExpiredCount > 0 || slaBreachCount > 0) && (
         <div className="bg-orange-50 border-b border-orange-200 px-4 py-2.5 flex flex-wrap gap-4">
           {holdExpiredCount > 0 && (
-            <p className="text-sm text-orange-800">
+            <button type="button" onClick={showHoldReturned}
+              className="text-sm text-orange-800 text-left hover:underline focus:outline-none focus:ring-2 focus:ring-orange-400 rounded"
+              title="Show only these tickets">
               <span className="font-semibold">⏰ {holdExpiredCount} ticket{holdExpiredCount > 1 ? 's' : ''}</span>
-              {' '}returned from hold — moved to Pending Review.
-            </p>
+              {' '}returned from hold — moved to Pending Review.{' '}
+              <span className="font-medium">{onlyIds ? 'Showing them below' : 'Show them →'}</span>
+            </button>
           )}
           {slaBreachCount > 0 && (
             <button type="button" onClick={showOverdue}
@@ -119,6 +140,13 @@ export function Dashboard({ onNavigateAnalytics, onNavigateUsers, onNavigateActi
               <span className="font-medium">{overdueOnly ? 'Showing them below' : 'Show them →'}</span>
             </button>
           )}
+        </div>
+      )}
+
+      {onlyIds && (
+        <div className="bg-blue-50 border-b border-blue-200 px-4 py-1.5 text-xs text-blue-800 flex items-center gap-3">
+          <span>Showing only the {onlyIds.length} ticket{onlyIds.length > 1 ? 's' : ''} returned from hold.</span>
+          <button type="button" onClick={() => setOnlyIds(null)} className="font-medium underline hover:text-blue-900">Show all tickets</button>
         </div>
       )}
 
