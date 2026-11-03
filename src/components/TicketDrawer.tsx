@@ -11,12 +11,16 @@ import { useAuth } from '../hooks/useAuth';
 import { useTicketLogs, useAllUsers } from '../hooks/useTickets';
 import { getAvailableTransitions, canPostUpdate, canChangePriority, canChangeSprintStatus, canRevertLastAction, canChangeAssignee, canLinkJira } from '../lib/stateMachine';
 import { revertLastAction, addComment, batchSave, BatchAction, changeJiraLink, findPossibleDuplicates, DuplicateMatch } from '../lib/actions';
-import { extractJiraKey, getJiraUrl } from '../lib/jiraUtils';
+import { extractJiraKey, getJiraUrl, findDuplicateGroups } from '../lib/jiraUtils';
 
 interface TicketDrawerProps {
   ticket: Ticket | null;
   onClose: () => void;
   onUpdate: () => void;
+  /** Every ticket (any role's view), used to show other open tickets on the same Jira key. */
+  allTickets?: Ticket[];
+  /** Opens another ticket in this drawer. */
+  onOpenTicket?: (ticket: Ticket) => void;
 }
 
 function describeError(err: unknown, fallback: string): string {
@@ -31,7 +35,7 @@ function describeError(err: unknown, fallback: string): string {
   return fallback;
 }
 
-export function TicketDrawer({ ticket, onClose, onUpdate }: TicketDrawerProps) {
+export function TicketDrawer({ ticket, onClose, onUpdate, allTickets = [], onOpenTicket }: TicketDrawerProps) {
   const { appUser } = useAuth();
   const { logs, loading: logsLoading, refetch: refetchLogs } = useTicketLogs(ticket?.id || null);
   const allUsers = useAllUsers();
@@ -82,6 +86,10 @@ export function TicketDrawer({ ticket, onClose, onUpdate }: TicketDrawerProps) {
   const showAssignee = canChangeAssignee(userRole);
   const showJiraEdit = canLinkJira(userRole, userId, reporterId);
   const jiraKey = extractJiraKey(ticket.freshdesk_id);
+  // Other open tickets linked to the same Jira key (only shown while this one is open too)
+  const sameJiraTickets = jiraKey && ticket.status !== TicketStatus.CLOSED
+    ? (findDuplicateGroups(allTickets).get(jiraKey) ?? []).filter(t => t.id !== ticket.id)
+    : [];
 
   const productUsers = allUsers.filter(u => PRODUCT_ROLES.includes(u.role as UserRole));
   const hasPendingChanges = pendingActions.length > 0 || pendingPriority || pendingSprint || pendingAssignee || pendingTransition;
@@ -270,6 +278,21 @@ export function TicketDrawer({ ticket, onClose, onUpdate }: TicketDrawerProps) {
 
       {/* Scrollable Body */}
       <div className="flex-1 overflow-y-auto">
+        {sameJiraTickets.length > 0 && (
+          <div className="px-4 py-2.5 bg-amber-50 border-b border-amber-200 text-xs text-amber-900">
+            <span className="font-semibold">⚠ Possible duplicate:</span> {jiraKey} is also linked to{' '}
+            {sameJiraTickets.map((t, i) => (
+              <span key={t.id}>
+                {i > 0 && ', '}
+                <button type="button" onClick={() => onOpenTicket?.(t)}
+                  className="font-mono font-semibold underline hover:text-amber-700">{t.custom_id}</button>
+                {' '}({getStatusLabel(t)}{t.reporter?.full_name ? `, by ${t.reporter.full_name}` : ''})
+              </span>
+            ))}
+            . If it's the same issue, keep one and close the other.
+          </div>
+        )}
+
         {/* Section 1: Issue Context */}
         <div className="p-4 border-b border-gray-100">
           <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Issue Details</h3>

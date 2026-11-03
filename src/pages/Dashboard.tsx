@@ -24,6 +24,13 @@ export function Dashboard({ onNavigateAnalytics, onNavigateUsers, onNavigateActi
   const [showNewModal, setShowNewModal] = useState(false);
   const [overdueOnly, setOverdueOnly] = useState(false);
 
+  // Clicking a Duplicate badge lists every ticket sharing that Jira key
+  function showDuplicates(jiraKey: string) {
+    setActiveTab('all');
+    setOverdueOnly(false);
+    setSearchQuery(jiraKey);
+  }
+
   // Clicking the overdue banner shows exactly those tickets
   function showOverdue() {
     setActiveTab('all');
@@ -123,7 +130,8 @@ export function Dashboard({ onNavigateAnalytics, onNavigateUsers, onNavigateActi
           onSelectTicket={handleSelectTicket}
           selectedTicketId={selectedTicket?.id || null}
           attentionFlags={attentionFlags}
-          allTickets={visibleTickets}
+          allTickets={tickets}
+          onShowDuplicates={showDuplicates}
           overdueOnly={overdueOnly}
           onOverdueChange={setOverdueOnly}
         />
@@ -133,6 +141,8 @@ export function Dashboard({ onNavigateAnalytics, onNavigateUsers, onNavigateActi
       {selectedTicket && (
         <TicketDrawer
           ticket={selectedTicket}
+          allTickets={tickets}
+          onOpenTicket={handleSelectTicket}
           onClose={handleCloseDrawer}
           onUpdate={handleTicketUpdate}
         />
