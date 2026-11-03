@@ -97,6 +97,8 @@ export interface Ticket {
   jira_status_category?: string | null; // To Do / In Progress / Done
   jira_assignee?: string | null;
   jira_synced_at?: string | null;
+  /** Set when an expired hold moved the ticket back to review; cleared on the next stage change. */
+  returned_from_hold_at?: string | null;
   created_at: string;
   updated_at: string;
 }

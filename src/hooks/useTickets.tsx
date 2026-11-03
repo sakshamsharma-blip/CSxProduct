@@ -6,8 +6,6 @@ export function useTickets() {
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  // Tickets whose hold date passed on this page load (moved back to Pending Product Review)
-  const [holdReturnedIds, setHoldReturnedIds] = useState<string[]>([]);
 
   const fetchTickets = useCallback(async () => {
     setLoading(true);
@@ -19,57 +17,15 @@ export function useTickets() {
     if (error) {
       setError(error.message);
     } else {
+      // Expired holds are moved back to Pending Product Review by the database
+      // every 15 minutes (release_expired_holds, migration 009), not here.
       const ticketList = data as Ticket[];
-
-      // Auto-transition expired holds to PENDING_PROD_REVIEW
-      const expired = ticketList.filter(t =>
-        t.status === TicketStatus.ON_HOLD_UNTIL &&
-        t.hold_until_date &&
-        new Date(t.hold_until_date) <= new Date()
-      );
-
-      if (expired.length > 0) {
-        const expiredIds = expired.map(t => t.id);
-        setHoldReturnedIds(prev => [...new Set([...prev, ...expiredIds])]);
-
-        await supabase
-          .from('tickets')
-          .update({
-            status: TicketStatus.PENDING_PROD_REVIEW,
-            hold_until_date: null,
-          })
-          .in('id', expiredIds);
-
-        const logEntries = expired.map(t => ({
-          ticket_id: t.id,
-          author_id: t.reporter_id,
-          comment: `Hold period expired — automatically moved back to review.`,
-          previous_status: TicketStatus.ON_HOLD_UNTIL,
-          new_status: TicketStatus.PENDING_PROD_REVIEW,
-          hold_target_date: null,
-        }));
-        await supabase.from('update_logs').insert(logEntries);
-
-        const { data: refreshed } = await supabase
-          .from('tickets')
-          .select('*, reporter:app_users!reporter_id(*)')
-          .order('created_at', { ascending: false });
-        if (refreshed) {
-          await updateSlaBreachCounts(refreshed as Ticket[]);
-          const { data: final } = await supabase
-            .from('tickets')
-            .select('*, reporter:app_users!reporter_id(*)')
-            .order('created_at', { ascending: false });
-          setTickets((final || refreshed) as Ticket[]);
-        }
-      } else {
-        await updateSlaBreachCounts(ticketList);
-        const { data: refreshed } = await supabase
-          .from('tickets')
-          .select('*, reporter:app_users!reporter_id(*)')
-          .order('created_at', { ascending: false });
-        setTickets((refreshed || ticketList) as Ticket[]);
-      }
+      await updateSlaBreachCounts(ticketList);
+      const { data: refreshed } = await supabase
+        .from('tickets')
+        .select('*, reporter:app_users!reporter_id(*)')
+        .order('created_at', { ascending: false });
+      setTickets((refreshed || ticketList) as Ticket[]);
     }
     setLoading(false);
   }, []);
@@ -82,7 +38,7 @@ export function useTickets() {
   // the stored Jira columns up to date every 15 minutes, so the page only
   // reads Flow's own database.
 
-  return { tickets, loading, error, refetch: fetchTickets, holdExpiredCount: holdReturnedIds.length, holdReturnedIds };
+  return { tickets, loading, error, refetch: fetchTickets };
 }
 
 // SLA breach count updater
@@ -367,4 +323,11 @@ export async function downloadExcel(tickets: Ticket[], filename: string, allUser
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Tickets');
   XLSX.writeFile(wb, filename);
+}
+
+// ===== RETURNED FROM HOLD =====
+
+/** Came back from hold and nobody has changed its stage since (the mark clears on the next stage change). */
+export function isReturnedFromHold(ticket: Ticket): boolean {
+  return Boolean(ticket.returned_from_hold_at) && ticket.status === TicketStatus.PENDING_PROD_REVIEW;
 }

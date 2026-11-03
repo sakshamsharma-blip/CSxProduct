@@ -6,7 +6,7 @@ import {
   getStatusLabel, getStatusColor, isReopenedPending,
   REOPENED_LABEL, REOPENED_COLOR
 } from '../types';
-import { needsWeeklyUpdate, isHoldExpired, getDaysSinceCreated, sortTickets, applyFilters, AttentionFlag, ticketNeedsAttention, useAllUsers, downloadExcel } from '../hooks/useTickets';
+import { needsWeeklyUpdate, isHoldExpired, isReturnedFromHold, getDaysSinceCreated, sortTickets, applyFilters, AttentionFlag, ticketNeedsAttention, useAllUsers, downloadExcel } from '../hooks/useTickets';
 import { extractJiraKey, getJiraUrl, findDuplicateGroups } from '../lib/jiraUtils';
 
 interface TicketTableProps {
@@ -350,6 +350,10 @@ export function TicketTable({ tickets, searchQuery, onSearchChange, onSelectTick
                         <span className={`px-2 py-0.5 rounded text-xs font-medium ${getStatusColor(ticket)}`}>{getStatusLabel(ticket)}</span>
                         {ticket.is_reopened && !isReopenedPending(ticket) && (
                           <span className={`px-2 py-0.5 rounded text-xs font-medium ${REOPENED_COLOR}`}>{REOPENED_LABEL}</span>
+                        )}
+                        {isReturnedFromHold(ticket) && (
+                          <span className="px-2 py-0.5 rounded text-xs font-medium bg-orange-100 text-orange-800"
+                            title="Hold date passed — waiting for a decision">⏰ Back from hold</span>
                         )}
                       </div>
                     </td>

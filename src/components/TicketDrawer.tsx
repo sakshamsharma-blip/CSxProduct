@@ -8,7 +8,7 @@ import {
   PRODUCT_ROLES
 } from '../types';
 import { useAuth } from '../hooks/useAuth';
-import { useTicketLogs, useAllUsers } from '../hooks/useTickets';
+import { useTicketLogs, useAllUsers, isReturnedFromHold } from '../hooks/useTickets';
 import { getAvailableTransitions, canPostUpdate, canChangePriority, canChangeSprintStatus, canRevertLastAction, canChangeAssignee, canLinkJira } from '../lib/stateMachine';
 import { revertLastAction, addComment, batchSave, BatchAction, changeJiraLink, findPossibleDuplicates, DuplicateMatch } from '../lib/actions';
 import { extractJiraKey, getJiraUrl, findDuplicateGroups } from '../lib/jiraUtils';
@@ -278,6 +278,13 @@ export function TicketDrawer({ ticket, onClose, onUpdate, allTickets = [], onOpe
 
       {/* Scrollable Body */}
       <div className="flex-1 overflow-y-auto">
+        {isReturnedFromHold(ticket) && (
+          <div className="px-4 py-2.5 bg-orange-50 border-b border-orange-200 text-xs text-orange-900">
+            <span className="font-semibold">⏰ Back from hold</span> — the hold date passed{ticket.returned_from_hold_at ? ` (${format(new Date(ticket.returned_from_hold_at), 'dd MMM, HH:mm')})` : ''}.
+            {' '}Decide what's next by moving it to a stage (e.g. In Product Scope, On Hold again, Returned to CS).
+          </div>
+        )}
+
         {sameJiraTickets.length > 0 && (
           <div className="px-4 py-2.5 bg-amber-50 border-b border-amber-200 text-xs text-amber-900">
             <span className="font-semibold">⚠ Possible duplicate:</span> {jiraKey} is also linked to{' '}

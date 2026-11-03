@@ -4,7 +4,7 @@ import { QueueTabs } from '../components/QueueTabs';
 import { TicketTable } from '../components/TicketTable';
 import { TicketDrawer } from '../components/TicketDrawer';
 import { NewTicketModal } from '../components/NewTicketModal';
-import { useTickets, filterTicketsByTab, getVisibleTickets, getAttentionTickets, needsWeeklyUpdate } from '../hooks/useTickets';
+import { useTickets, filterTicketsByTab, getVisibleTickets, getAttentionTickets, needsWeeklyUpdate, isReturnedFromHold } from '../hooks/useTickets';
 import { useAuth } from '../hooks/useAuth';
 import { Ticket, QueueTab, UserRole } from '../types';
 
@@ -16,18 +16,18 @@ interface DashboardProps {
 }
 
 export function Dashboard({ onNavigateAnalytics, onNavigateUsers, onNavigateActivity, onChangePassword }: DashboardProps) {
-  const { tickets, loading, refetch, holdExpiredCount, holdReturnedIds } = useTickets();
+  const { tickets, loading, refetch } = useTickets();
   const { appUser } = useAuth();
   const [activeTab, setActiveTab] = useState<QueueTab>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedTicket, setSelectedTicket] = useState<Ticket | null>(null);
   const [showNewModal, setShowNewModal] = useState(false);
   const [overdueOnly, setOverdueOnly] = useState(false);
-  // When set, the list shows only these tickets (e.g. "returned from hold")
-  const [onlyIds, setOnlyIds] = useState<string[] | null>(null);
+  // When true, the list shows only tickets that came back from hold and still need a decision
+  const [holdReturnedOnly, setHoldReturnedOnly] = useState(false);
 
   function changeTab(tab: QueueTab) {
-    setOnlyIds(null);
+    setHoldReturnedOnly(false);
     setActiveTab(tab);
   }
 
@@ -36,12 +36,12 @@ export function Dashboard({ onNavigateAnalytics, onNavigateUsers, onNavigateActi
     setActiveTab('all');
     setOverdueOnly(false);
     setSearchQuery('');
-    setOnlyIds(holdReturnedIds);
+    setHoldReturnedOnly(true);
   }
 
   // Clicking a Duplicate badge lists every ticket sharing that Jira key
   function showDuplicates(jiraKey: string) {
-    setOnlyIds(null);
+    setHoldReturnedOnly(false);
     setActiveTab('all');
     setOverdueOnly(false);
     setSearchQuery(jiraKey);
@@ -49,7 +49,7 @@ export function Dashboard({ onNavigateAnalytics, onNavigateUsers, onNavigateActi
 
   // Clicking the overdue banner shows exactly those tickets
   function showOverdue() {
-    setOnlyIds(null);
+    setHoldReturnedOnly(false);
     setActiveTab('all');
     setOverdueOnly(true);
   }
@@ -60,11 +60,13 @@ export function Dashboard({ onNavigateAnalytics, onNavigateUsers, onNavigateActi
   // First apply role-based visibility, then tab filter
   const visibleTickets = getVisibleTickets(tickets, userRole, userId);
   const tabTickets = filterTicketsByTab(visibleTickets, activeTab, userId);
-  const filteredTickets = onlyIds ? tabTickets.filter(t => onlyIds.includes(t.id)) : tabTickets;
+  const filteredTickets = holdReturnedOnly ? tabTickets.filter(isReturnedFromHold) : tabTickets;
 
   // Compute attention flags from current data (persists until action is taken)
   const attentionFlags = getAttentionTickets(visibleTickets);
   const slaBreachCount = visibleTickets.filter(t => needsWeeklyUpdate(t)).length;
+  // Stays until someone changes the ticket's stage (the mark is cleared in the database then)
+  const holdExpiredCount = visibleTickets.filter(isReturnedFromHold).length;
 
   function handleSelectTicket(ticket: Ticket) {
     setSelectedTicket(ticket);
@@ -127,8 +129,8 @@ export function Dashboard({ onNavigateAnalytics, onNavigateUsers, onNavigateActi
               className="text-sm text-orange-800 text-left hover:underline focus:outline-none focus:ring-2 focus:ring-orange-400 rounded"
               title="Show only these tickets">
               <span className="font-semibold">⏰ {holdExpiredCount} ticket{holdExpiredCount > 1 ? 's' : ''}</span>
-              {' '}returned from hold — moved to Pending Review.{' '}
-              <span className="font-medium">{onlyIds ? 'Showing them below' : 'Show them →'}</span>
+              {' '}returned from hold — moved to Pending Review, waiting for a decision.{' '}
+              <span className="font-medium">{holdReturnedOnly ? 'Showing them below' : 'Show them →'}</span>
             </button>
           )}
           {slaBreachCount > 0 && (
@@ -143,10 +145,10 @@ export function Dashboard({ onNavigateAnalytics, onNavigateUsers, onNavigateActi
         </div>
       )}
 
-      {onlyIds && (
+      {holdReturnedOnly && (
         <div className="bg-blue-50 border-b border-blue-200 px-4 py-1.5 text-xs text-blue-800 flex items-center gap-3">
-          <span>Showing only the {onlyIds.length} ticket{onlyIds.length > 1 ? 's' : ''} returned from hold.</span>
-          <button type="button" onClick={() => setOnlyIds(null)} className="font-medium underline hover:text-blue-900">Show all tickets</button>
+          <span>Showing only tickets returned from hold that are waiting for a decision ({holdExpiredCount}). They leave this list once their stage is changed.</span>
+          <button type="button" onClick={() => setHoldReturnedOnly(false)} className="font-medium underline hover:text-blue-900">Show all tickets</button>
         </div>
       )}
 
