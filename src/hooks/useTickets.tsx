@@ -7,8 +7,9 @@ export function useTickets() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // `loading` starts true, so only the first load shows the page spinner.
+  // Refetches after a save stay silent so the table keeps its filters and sort.
   const fetchTickets = useCallback(async () => {
-    setLoading(true);
     const { data, error } = await supabase
       .from('tickets')
       .select('*, reporter:app_users!reporter_id(*)')
